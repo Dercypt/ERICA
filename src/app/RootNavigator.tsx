@@ -1,16 +1,18 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { NavigationContainer, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, createNavigationContainerRef } from '@react-navigation/native';
 import { SosScreen } from '../features/sos';
 import { ContactsScreen } from '../features/contacts';
 import { HistoryScreen } from '../features/history';
 import { SettingsScreen } from '../features/settings';
 
+export const navigationRef = createNavigationContainerRef();
+
 const Tab = createBottomTabNavigator();
 
 export function RootNavigator() {
   return (
-    <NavigationContainer theme={DarkTheme}>
+    <NavigationContainer ref={navigationRef} theme={DarkTheme}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,

@@ -6,16 +6,21 @@ import { useMachine } from '@xstate/react';
 import { sosMachine } from './sosMachine';
 import { getSettings } from '../settings/settingsStorage';
 import { addMarkSafeListener } from '../../../modules/foreground-service';
+import { addPanicTriggerListener } from '../../../modules/physical-triggers';
 
 export function SosScreen() {
   const [state, send] = useMachine(sosMachine);
 
   useEffect(() => {
-    const sub = addMarkSafeListener(() => {
+    const markSafeSub = addMarkSafeListener(() => {
       send({ type: 'MARK_SAFE' });
     });
+    const panicSub = addPanicTriggerListener((event) => {
+      send({ type: 'TRIGGER', source: event.source });
+    });
     return () => {
-      sub.remove();
+      markSafeSub.remove();
+      panicSub.remove();
     };
   }, [send]);
 

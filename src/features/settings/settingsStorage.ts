@@ -5,15 +5,35 @@ export interface Settings {
   userName: string;
   customMessage: string;
   retryCeilingSeconds?: number;
+
+  // Strict Safety Defaults: All physical triggers remain OFF by default
+  volumeTriggerEnabled?: boolean;
+  volumePressCount?: number;
+  volumeWindowSeconds?: number;
+
+  shakeTriggerEnabled?: boolean;
+  shakeThreshold?: number;
+  shakeMinCount?: number;
+  shakeHighPassAlpha?: number;
 }
 
 const STORAGE_KEY = '@erica/settings';
 
-const DEFAULT_SETTINGS: Settings = {
+export const DEFAULT_SETTINGS: Settings = {
   countdownSeconds: 10,
   userName: '',
   customMessage: '',
   retryCeilingSeconds: 60,
+
+  // Safety Defaults: strictly false/off by default
+  volumeTriggerEnabled: false,
+  volumePressCount: 4,
+  volumeWindowSeconds: 3,
+
+  shakeTriggerEnabled: false,
+  shakeThreshold: 25,
+  shakeMinCount: 3,
+  shakeHighPassAlpha: 0.8,
 };
 
 export async function getSettings(): Promise<Settings> {

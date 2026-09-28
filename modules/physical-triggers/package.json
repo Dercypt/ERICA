@@ -1,0 +1,7 @@
+{
+  "name": "physical-triggers",
+  "version": "0.1.0",
+  "description": "Hardware and sensor panic triggers (volume button sequence and high-pass shake detector) for ERICA",
+  "main": "index.ts",
+  "types": "index.ts"
+}

@@ -42,5 +42,16 @@
       android:name="expo.modules.foregroundservice.EmergencyForegroundService"
       android:foregroundServiceType="location"
       android:exported="false" />
+    <service
+      android:name="expo.modules.physicaltriggers.EricaAccessibilityService"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/accessibility_service_config" />
+    </service>
   </application>
 </manifest>

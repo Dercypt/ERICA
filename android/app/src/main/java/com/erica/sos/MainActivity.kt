@@ -58,4 +58,12 @@ class MainActivity : ReactActivity() {
       // because it's doing more than [Activity.moveTaskToBack] in fact.
       super.invokeDefaultOnBackPressed()
   }
+
+  /**
+   * Intercept hardware key events (e.g. volume buttons) to detect emergency trigger patterns.
+   */
+  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    expo.modules.physicaltriggers.PhysicalTriggersModule.onKeyEvent(event)
+    return super.dispatchKeyEvent(event)
+  }
 }
