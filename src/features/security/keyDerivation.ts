@@ -439,11 +439,13 @@ export async function verifyPinHash(
   if (!pin || !record?.salt || !record?.hash) {
     return false;
   }
-  const salt = hexToBytes(record.salt);
-  const expectedHash = hexToBytes(record.hash);
+  let salt: Uint8Array | null = null;
+  let expectedHash: Uint8Array | null = null;
   let candidateHash: Uint8Array | null = null;
 
   try {
+    salt = hexToBytes(record.salt);
+    expectedHash = hexToBytes(record.hash);
     candidateHash = await pbkdf2HmacSha256(
       pin,
       salt,
@@ -451,6 +453,8 @@ export async function verifyPinHash(
       expectedHash.length
     );
     return timingSafeEqual(candidateHash, expectedHash);
+  } catch {
+    return false;
   } finally {
     wipeBuffers(candidateHash, expectedHash, salt);
   }
