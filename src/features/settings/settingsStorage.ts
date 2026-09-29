@@ -15,6 +15,10 @@ export interface Settings {
   shakeThreshold?: number;
   shakeMinCount?: number;
   shakeHighPassAlpha?: number;
+
+  // App Lock & Biometric Gatekeeper
+  appLockTimeoutSeconds?: number; // 0 = Immediate, 15, 30, 60
+  biometricsEnabled?: boolean;
 }
 
 const STORAGE_KEY = '@erica/settings';
@@ -34,6 +38,10 @@ export const DEFAULT_SETTINGS: Settings = {
   shakeThreshold: 25,
   shakeMinCount: 3,
   shakeHighPassAlpha: 0.8,
+
+  // App Lock Defaults: Immediate lock, Biometrics enabled
+  appLockTimeoutSeconds: 0,
+  biometricsEnabled: true,
 };
 
 export async function getSettings(): Promise<Settings> {

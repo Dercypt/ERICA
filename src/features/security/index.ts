@@ -2,3 +2,7 @@ export * from './keyDerivation';
 export * from './secureStorage';
 export * from './masterKey';
 export * from './pinAuth';
+export * from './biometrics';
+export * from './appLockController';
+export * from './useAppLock';
+export * from './LockScreen';
