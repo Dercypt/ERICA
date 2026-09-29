@@ -7,6 +7,10 @@ import {
   isPinConfigured,
   setupPin,
   changePin,
+  isDuressPinConfigured,
+  setupDuressPin,
+  changeDuressPin,
+  removeDuressPin,
   useAppLock,
   getBiometricCapabilities,
   type BiometricCapabilities,
@@ -96,6 +100,16 @@ export function SettingsScreen() {
   const [pinMessage, setPinMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [isChangingPin, setIsChangingPin] = useState(false);
 
+  // Duress PIN & Anti-Coercion state
+  const [duressPinConfigured, setDuressPinConfigured] = useState(false);
+  const [duressPinInput, setDuressPinInput] = useState('');
+  const [currentDuressPinInput, setCurrentDuressPinInput] = useState('');
+  const [duressPinConfirmInput, setDuressPinConfirmInput] = useState('');
+  const [duressPinMessage, setDuressPinMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [isChangingDuressPin, setIsChangingDuressPin] = useState(false);
+  const [duressSilentSosEnabled, setDuressSilentSosEnabled] = useState(false);
+  const [decoyContactsType, setDecoyContactsType] = useState<'mock' | 'empty'>('mock');
+
   // Volume button pattern state
   const [volumeEnabled, setVolumeEnabled] = useState(false);
   const [volumePressCount, setVolumePressCount] = useState(4);
@@ -151,6 +165,8 @@ export function SettingsScreen() {
         setShakeAlpha(s.shakeHighPassAlpha ?? 0.8);
         setBiometricsEnabled(s.biometricsEnabled ?? true);
         setLockTimeout(s.appLockTimeoutSeconds ?? 0);
+        setDuressSilentSosEnabled(Boolean(s.duressSilentSosEnabled));
+        setDecoyContactsType(s.decoyContactsType ?? 'mock');
 
         volumeEngineRef.current.configure({
           enabled: true,
@@ -167,6 +183,7 @@ export function SettingsScreen() {
       });
 
       isPinConfigured().then(setPinConfigured);
+      isDuressPinConfigured().then(setDuressPinConfigured);
       getBiometricCapabilities().then(setBiometricsCap);
     }, [])
   );
@@ -213,8 +230,79 @@ export function SettingsScreen() {
       setIsChangingPin(false);
       setPinMessage({ text: 'PIN successfully updated!', error: false });
       await refreshLockState();
+    } catch (err) {
+      setPinMessage({
+        text: err instanceof Error ? err.message : 'Failed to change PIN',
+        error: true,
+      });
+    }
+  };
+
+  const handleSetupDuressPin = async () => {
+    if (duressPinInput.length < 4) {
+      setDuressPinMessage({ text: 'Duress PIN must be at least 4 digits', error: true });
+      return;
+    }
+    if (duressPinInput !== duressPinConfirmInput) {
+      setDuressPinMessage({ text: 'Duress PINs do not match', error: true });
+      return;
+    }
+    try {
+      await setupDuressPin(duressPinInput);
+      setDuressPinConfigured(true);
+      setDuressPinInput('');
+      setDuressPinConfirmInput('');
+      setDuressPinMessage({ text: 'Duress PIN successfully configured!', error: false });
+      await refreshLockState();
+    } catch (err) {
+      setDuressPinMessage({
+        text: err instanceof Error ? err.message : 'Failed to configure Duress PIN',
+        error: true,
+      });
+    }
+  };
+
+  const handleChangeDuressPin = async () => {
+    if (duressPinInput.length < 4) {
+      setDuressPinMessage({ text: 'New Duress PIN must be at least 4 digits', error: true });
+      return;
+    }
+    if (duressPinInput !== duressPinConfirmInput) {
+      setDuressPinMessage({ text: 'New Duress PINs do not match', error: true });
+      return;
+    }
+    try {
+      const success = await changeDuressPin(currentDuressPinInput, duressPinInput);
+      if (!success) {
+        setDuressPinMessage({ text: 'Current Duress PIN is incorrect', error: true });
+        return;
+      }
+      setDuressPinInput('');
+      setCurrentDuressPinInput('');
+      setDuressPinConfirmInput('');
+      setIsChangingDuressPin(false);
+      setDuressPinMessage({ text: 'Duress PIN successfully updated!', error: false });
+      await refreshLockState();
+    } catch (err) {
+      setDuressPinMessage({
+        text: err instanceof Error ? err.message : 'Failed to change Duress PIN',
+        error: true,
+      });
+    }
+  };
+
+  const handleRemoveDuressPin = async () => {
+    try {
+      await removeDuressPin();
+      setDuressPinConfigured(false);
+      setDuressPinInput('');
+      setCurrentDuressPinInput('');
+      setDuressPinConfirmInput('');
+      setIsChangingDuressPin(false);
+      setDuressPinMessage({ text: 'Duress PIN removed', error: false });
+      await refreshLockState();
     } catch {
-      setPinMessage({ text: 'Failed to change PIN', error: true });
+      setDuressPinMessage({ text: 'Failed to remove Duress PIN', error: true });
     }
   };
 
@@ -358,6 +446,8 @@ export function SettingsScreen() {
       shakeHighPassAlpha: shakeAlpha,
       appLockTimeoutSeconds: lockTimeout,
       biometricsEnabled,
+      duressSilentSosEnabled,
+      decoyContactsType,
     };
 
     await saveSettings(toSave);
@@ -617,6 +707,198 @@ export function SettingsScreen() {
                   </Text>
                 </Pressable>
               ))}
+            </View>
+          </View>
+
+          {/* SubSection: Secondary Duress PIN & Anti-Coercion Protection */}
+          <View style={styles.subSection}>
+            <View style={styles.pinStatusRow}>
+              <View style={{ flex: 1, paddingRight: 8 }}>
+                <Text style={styles.triggerTitle}>Secondary Duress PIN (Anti-Coercion)</Text>
+                <Text style={styles.triggerSubtitle}>
+                  {duressPinConfigured
+                    ? 'Decoy Protection Active: entering Duress PIN reveals a benign decoy screen without alerting the adversary.'
+                    : 'Optional secondary PIN to enter if forced to unlock under physical coercion.'}
+                </Text>
+              </View>
+            </View>
+
+            {duressPinMessage ? (
+              <Text
+                style={[
+                  styles.pinFeedbackText,
+                  duressPinMessage.error ? styles.pinFeedbackError : styles.pinFeedbackSuccess,
+                ]}
+              >
+                {duressPinMessage.text}
+              </Text>
+            ) : null}
+
+            {!pinConfigured ? (
+              <Text style={styles.helperText}>
+                Configure your primary PIN first above to enable the secondary Duress PIN.
+              </Text>
+            ) : !duressPinConfigured ? (
+              <View style={styles.pinForm}>
+                <Text style={styles.label}>Set 4-8 Digit Duress PIN</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="New Duress PIN (min 4 digits)"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={duressPinInput}
+                  onChangeText={setDuressPinInput}
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 8 }]}
+                  placeholder="Confirm Duress PIN"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={duressPinConfirmInput}
+                  onChangeText={setDuressPinConfirmInput}
+                />
+                <Pressable style={styles.pinActionButton} onPress={handleSetupDuressPin}>
+                  <Text style={styles.pinActionButtonText}>Enable Duress PIN</Text>
+                </Pressable>
+              </View>
+            ) : isChangingDuressPin ? (
+              <View style={styles.pinForm}>
+                <Text style={styles.label}>Change Duress PIN</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Current Duress PIN"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={currentDuressPinInput}
+                  onChangeText={setCurrentDuressPinInput}
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 8 }]}
+                  placeholder="New Duress PIN (min 4 digits)"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={duressPinInput}
+                  onChangeText={setDuressPinInput}
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 8 }]}
+                  placeholder="Confirm New Duress PIN"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={duressPinConfirmInput}
+                  onChangeText={setDuressPinConfirmInput}
+                />
+                <View style={styles.pinActionRow}>
+                  <Pressable
+                    style={[styles.pinActionButton, { flex: 1 }]}
+                    onPress={handleChangeDuressPin}
+                  >
+                    <Text style={styles.pinActionButtonText}>Update Duress PIN</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.pinCancelButton, { flex: 1 }]}
+                    onPress={() => {
+                      setIsChangingDuressPin(false);
+                      setDuressPinInput('');
+                      setCurrentDuressPinInput('');
+                      setDuressPinConfirmInput('');
+                      setDuressPinMessage(null);
+                    }}
+                  >
+                    <Text style={styles.pinCancelButtonText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.pinActionRow}>
+                <Pressable
+                  style={[styles.changePinButton, { flex: 1, marginTop: 4 }]}
+                  onPress={() => {
+                    setIsChangingDuressPin(true);
+                    setDuressPinMessage(null);
+                  }}
+                >
+                  <Text style={styles.changePinButtonText}>Change Duress PIN</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.removePinButton, { flex: 1, marginTop: 4 }]}
+                  onPress={handleRemoveDuressPin}
+                >
+                  <Text style={styles.removePinButtonText}>Remove Duress PIN</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Duress Stealth Silent SOS Option */}
+            <View style={[styles.switchRow, { marginTop: 16 }]}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Stealth Silent SOS on Duress</Text>
+                <Text style={styles.triggerSubtitle}>
+                  Silently dispatch emergency SMS alert to real contacts in background when Duress PIN is entered.
+                </Text>
+              </View>
+              <Switch
+                value={duressSilentSosEnabled}
+                onValueChange={(val) => {
+                  setDuressSilentSosEnabled(val);
+                  setSettings((s) => ({ ...s, duressSilentSosEnabled: val }));
+                }}
+                trackColor={{ false: '#3A3A3C', true: '#D7263D' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {/* Decoy Contacts Style Selection */}
+            <View style={{ marginTop: 12 }}>
+              <Text style={styles.triggerTitle}>Decoy Screen Display</Text>
+              <Text style={styles.triggerSubtitle}>
+                Choose what the decoy screen displays when opened with the Duress PIN.
+              </Text>
+              <View style={styles.timeoutOptionsRow}>
+                <Pressable
+                  style={[
+                    styles.timeoutOptionButton,
+                    decoyContactsType === 'mock' && styles.timeoutOptionActive,
+                  ]}
+                  onPress={() => {
+                    setDecoyContactsType('mock');
+                    setSettings((s) => ({ ...s, decoyContactsType: 'mock' }));
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.timeoutOptionText,
+                      decoyContactsType === 'mock' && styles.timeoutOptionTextActive,
+                    ]}
+                  >
+                    Mock Contacts
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.timeoutOptionButton,
+                    decoyContactsType === 'empty' && styles.timeoutOptionActive,
+                  ]}
+                  onPress={() => {
+                    setDecoyContactsType('empty');
+                    setSettings((s) => ({ ...s, decoyContactsType: 'empty' }));
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.timeoutOptionText,
+                      decoyContactsType === 'empty' && styles.timeoutOptionTextActive,
+                    ]}
+                  >
+                    Empty List
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           </View>
         </View>
@@ -945,6 +1227,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   changePinButtonText: { color: 'white', fontSize: 13, fontWeight: '600' },
+  removePinButton: {
+    backgroundColor: '#3A1014',
+    borderColor: '#D7263D',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  removePinButtonText: { color: '#FF4D4D', fontSize: 13, fontWeight: '600' },
   timeoutOptionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
   timeoutOptionButton: {
     flex: 1,
