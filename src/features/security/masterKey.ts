@@ -123,16 +123,20 @@ export function getActiveMasterKey(): Uint8Array {
 export async function withMasterKey<T>(
   operation: (key: Uint8Array) => Promise<T> | T
 ): Promise<T> {
+  const wasLoaded = isMasterKeyLoaded();
   let keyCopy: Uint8Array | null = null;
   try {
-    if (!isMasterKeyLoaded()) {
-      await loadMasterKey();
+    if (!wasLoaded) {
+      await getOrCreateMasterKey();
     }
     keyCopy = getActiveMasterKey();
     return await operation(keyCopy);
   } finally {
     if (keyCopy) {
       wipeBuffer(keyCopy);
+    }
+    if (!wasLoaded) {
+      wipeMasterKeyMemory();
     }
   }
 }

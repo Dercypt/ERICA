@@ -6,7 +6,7 @@ import { RootNavigator, navigationRef } from './src/app';
 import { initDispatchEngine } from './src/features/dispatch';
 import { getSettings } from './src/features/settings';
 import { getSosService } from './src/features/sos';
-import { useAppLock, LockScreen } from './src/features/security';
+import { useAppLock, LockScreen, runStorageMigration } from './src/features/security';
 import {
   configureVolumeTrigger,
   configureShakeTrigger,
@@ -68,6 +68,11 @@ export default function App() {
   useEffect(() => {
     let cleanupDispatch: (() => void) | undefined;
     let cleanupTriggers: (() => void) | undefined;
+
+    // Phase 3: Automated Safe One-Time Storage Migration
+    runStorageMigration().catch((err) => {
+      console.warn('[App] Failed to run storage migration:', err);
+    });
 
     initDispatchEngine()
       .then((fn) => {
