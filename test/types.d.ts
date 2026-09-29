@@ -26,3 +26,18 @@ declare module 'node:crypto' {
   const crypto: any;
   export default crypto;
 }
+
+declare module 'node:fs' {
+  const fs: any;
+  export default fs;
+}
+
+declare module 'node:path' {
+  const path: any;
+  export default path;
+}
+
+declare module 'node:os' {
+  const os: any;
+  export default os;
+}
