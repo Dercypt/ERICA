@@ -13,3 +13,12 @@ export function SettingsScreen() {
 export function SosScreen() {
   return null;
 }
+
+export function ContactsScreen() {
+  return null;
+}
+
+export function DecoyScreen() {
+  return null;
+}
+

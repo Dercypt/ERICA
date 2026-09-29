@@ -6,7 +6,7 @@ import { RootNavigator, navigationRef } from './src/app';
 import { initDispatchEngine } from './src/features/dispatch';
 import { getSettings } from './src/features/settings';
 import { getSosService } from './src/features/sos';
-import { useAppLock, LockScreen, runStorageMigration } from './src/features/security';
+import { useAppLock, LockScreen, DecoyScreen, runStorageMigration } from './src/features/security';
 import {
   configureVolumeTrigger,
   configureShakeTrigger,
@@ -45,7 +45,21 @@ export async function initPhysicalTriggers(): Promise<() => void> {
 }
 
 function MainApp() {
-  const { isLocked, isPinConfigured, recordActivity } = useAppLock();
+  const { isLocked, isPinConfigured, isDuressMode, recordActivity } = useAppLock();
+
+  if (isDuressMode) {
+    return (
+      <View
+        style={{ flex: 1 }}
+        onStartShouldSetResponderCapture={() => {
+          recordActivity();
+          return false;
+        }}
+      >
+        <DecoyScreen />
+      </View>
+    );
+  }
 
   if (isPinConfigured && isLocked) {
     return <LockScreen />;

@@ -8,6 +8,8 @@ import {
 import { AppState } from './mockReactNative.mjs';
 import {
   setupPin,
+  setupDuressPin,
+  isDuressPinConfigured,
   lockVault,
   isVaultLocked,
   isPinConfigured,
@@ -19,6 +21,12 @@ import {
   unlockWithBiometrics,
   appLockController,
 } from '../src/features/security';
+import {
+  getDecoyContacts,
+  addDecoyContact,
+  removeDecoyContact,
+  resetDecoyContacts,
+} from '../src/features/contacts';
 import { DEFAULT_SETTINGS, saveSettings } from '../src/features/settings/settingsStorage';
 import {
   applyFlagSecure,
@@ -294,3 +302,110 @@ test('9. CRITICAL THREAT-MODEL GUARD: Emergency Dispatch Bypass operates unimped
     cleanupDispatch();
   }
 });
+
+test('10. Anti-Coercion: Entering Duress PIN unlocks into Decoy Mode while keeping real vault locked', async () => {
+  await setupPin('1234', 1_000);
+  await setupDuressPin('9999', 1_000);
+  await appLockController.init();
+
+  assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'App starts locked');
+  assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
+  assert.strictEqual(appLockController.getSnapshot().isDuressPinConfigured, true);
+
+  // 1. Enter Duress PIN
+  const unlockResult = await appLockController.unlockWithPin('9999');
+  assert.strictEqual(unlockResult, true, 'Duress PIN must report success so adversary is never alerted');
+
+  const snapshot = appLockController.getSnapshot();
+  assert.strictEqual(snapshot.isLocked, false, 'UI unlocks to decoy screen');
+  assert.strictEqual(snapshot.isDuressMode, true, 'Duress mode must be active');
+
+  // CRITICAL THREAT-MODEL GUARD:
+  // Vault remains completely locked; master key is NOT loaded in memory
+  assert.strictEqual(isVaultLocked(), true, 'Master key vault must remain locked under duress');
+  assert.strictEqual(isMasterKeyLoaded(), false, 'Master key must remain purged from RAM under duress');
+
+  // 2. Decoy contacts isolation: mock innocuous contacts are served
+  const decoyContacts = await getDecoyContacts();
+  assert.ok(decoyContacts.length > 0, 'Decoy contacts should show mock innocuous contacts');
+  assert.ok(decoyContacts.some((c) => c.name.includes('Clinic') || c.name.includes('Doctor')));
+
+  // Adding/removing decoy contacts does not affect real vault
+  await addDecoyContact({ name: 'Local Pharmacy', phoneNumber: '+15551234' });
+  const updatedDecoy = await getDecoyContacts();
+  assert.ok(updatedDecoy.some((c) => c.name === 'Local Pharmacy'));
+
+  // 3. Backgrounding the app clears duress mode and engages standard lock
+  (AppState as any)._setAppState('background');
+  assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'App locks on background');
+  assert.strictEqual(appLockController.getSnapshot().isDuressMode, false, 'Duress mode state resets upon lock');
+
+  // 4. Entering primary PIN unlocks full genuine vault
+  (AppState as any)._setAppState('active');
+  const primaryUnlock = await appLockController.unlockWithPin('1234');
+  assert.strictEqual(primaryUnlock, true);
+  assert.strictEqual(appLockController.getSnapshot().isLocked, false);
+  assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
+  assert.strictEqual(isVaultLocked(), false, 'Real PIN unlocks master vault');
+  assert.strictEqual(isMasterKeyLoaded(), true, 'Master key is loaded for legitimate user');
+
+  await resetDecoyContacts();
+});
+
+test('11. Anti-Coercion: Duress Silent SOS optionally dispatches in background when enabled in settings', async () => {
+  await setupPin('1234', 1_000);
+  await setupDuressPin('9999', 1_000);
+  await appLockController.init();
+
+  let dispatchedCount = 0;
+  let dispatchedPayload = '';
+  const mockDb = new MockSQLiteDatabase();
+
+  configureDispatchEngineOverrides({
+    silentSmsSender: async (recipients, msg) => {
+      dispatchedCount += recipients.length;
+      dispatchedPayload = msg;
+      return true;
+    },
+    availabilityChecker: async () => true,
+  });
+
+  const cleanupDispatch = await initDispatchEngine({
+    customDb: mockDb,
+    silentSmsSender: async (recipients, msg) => {
+      dispatchedCount += recipients.length;
+      dispatchedPayload = msg;
+      return true;
+    },
+    availabilityChecker: async () => true,
+  });
+
+  try {
+    // Case A: duressSilentSosEnabled = false (Default)
+    await saveSettings({ ...DEFAULT_SETTINGS, duressSilentSosEnabled: false });
+    await appLockController.unlockWithPin('9999');
+    await new Promise((r) => setTimeout(r, 60));
+    assert.strictEqual(dispatchedCount, 0, 'No SOS dispatched when setting is disabled');
+
+    appLockController.lock();
+
+    // Case B: duressSilentSosEnabled = true
+    await saveSettings({ ...DEFAULT_SETTINGS, duressSilentSosEnabled: true });
+    // Save a real emergency contact
+    const { saveContacts } = await import('../src/features/contacts/contactsStorage');
+    await saveContacts([{ id: 'c1', name: 'Safe Contact', phoneNumber: '+12345550000' }]);
+
+    const unlocked = await appLockController.unlockWithPin('9999');
+    assert.strictEqual(unlocked, true);
+    assert.strictEqual(appLockController.getSnapshot().isDuressMode, true);
+
+    // Allow background silent dispatch to execute
+    await new Promise((r) => setTimeout(r, 80));
+    assert.strictEqual(dispatchedCount, 1, 'Silent SOS dispatched to trusted contact in background');
+    assert.ok(dispatchedPayload.includes('Triggered via: Duress PIN (Silent SOS)'));
+  } finally {
+    cleanupDispatch();
+    resetDispatchEngineOverrides();
+  }
+});
+
