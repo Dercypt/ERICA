@@ -35,6 +35,16 @@ export class MockSQLiteDatabase implements ISQLiteDatabase {
       return { changes: 0 };
     }
 
+    if (trimmed.startsWith('UPDATE outbox_queue SET payload = ? WHERE id = ?')) {
+      const [payload, id] = params;
+      const existing = this.rows.get(String(id));
+      if (existing) {
+        existing.payload = String(payload);
+        return { changes: 1 };
+      }
+      return { changes: 0 };
+    }
+
     if (trimmed.startsWith('UPDATE outbox_queue SET status = ? WHERE id = ?')) {
       const [status, id] = params;
       const existing = this.rows.get(String(id));

@@ -1,4 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import {
+  encryptString,
+  decryptString,
+  isEncryptedPayload,
+} from '../security/encryption';
 
 export type OutboxStatus = 'PENDING' | 'IN_FLIGHT' | 'SENT' | 'FAILED';
 
@@ -98,8 +103,26 @@ export function generateOutboxId(): string {
   return `msg_${ts}_${rnd}`;
 }
 
+async function decryptOutboxItem(item: OutboxItem): Promise<OutboxItem> {
+  if (isEncryptedPayload(item.payload)) {
+    try {
+      const decrypted = await decryptString(item.payload);
+      return { ...item, payload: decrypted };
+    } catch (err) {
+      console.warn(`[outboxQueue] Failed to decrypt payload for item ${item.id}:`, err);
+      return item;
+    }
+  }
+  return item;
+}
+
+async function decryptOutboxItems(items: OutboxItem[]): Promise<OutboxItem[]> {
+  return await Promise.all(items.map(decryptOutboxItem));
+}
+
 /**
  * Enqueues a single SMS alert into the persistent local SQLite outbox queue.
+ * Payload is automatically encrypted using authenticated AES-256-GCM.
  */
 export async function enqueueItem(
   recipient: string,
@@ -118,12 +141,16 @@ export async function enqueueItem(
     createdAt: options?.createdAt ?? now,
   };
 
+  const encryptedPayload = isEncryptedPayload(payload)
+    ? payload
+    : await encryptString(payload);
+
   await db.runAsync(
     `INSERT INTO outbox_queue (id, recipient, payload, attempts, status, nextRetryAt, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?);`,
     item.id,
     item.recipient,
-    item.payload,
+    encryptedPayload,
     item.attempts,
     item.status,
     item.nextRetryAt,
@@ -153,7 +180,7 @@ export async function enqueueItems(
  */
 export async function getDueItems(now: number = Date.now(), limit: number = 50): Promise<OutboxItem[]> {
   const db = await getDatabase();
-  return await db.getAllAsync<OutboxItem>(
+  const rows = await db.getAllAsync<OutboxItem>(
     `SELECT id, recipient, payload, attempts, status, nextRetryAt, createdAt
      FROM outbox_queue
      WHERE status = 'PENDING' AND nextRetryAt <= ?
@@ -162,6 +189,7 @@ export async function getDueItems(now: number = Date.now(), limit: number = 50):
     now,
     limit
   );
+  return await decryptOutboxItems(rows);
 }
 
 /**
@@ -170,12 +198,13 @@ export async function getDueItems(now: number = Date.now(), limit: number = 50):
  */
 export async function getAllPendingItems(): Promise<OutboxItem[]> {
   const db = await getDatabase();
-  return await db.getAllAsync<OutboxItem>(
+  const rows = await db.getAllAsync<OutboxItem>(
     `SELECT id, recipient, payload, attempts, status, nextRetryAt, createdAt
      FROM outbox_queue
      WHERE status = 'PENDING'
      ORDER BY createdAt ASC;`
   );
+  return await decryptOutboxItems(rows);
 }
 
 /**
@@ -234,23 +263,51 @@ export async function resetInFlightToPending(): Promise<void> {
 
 /**
  * Fetches outbox queue items with optional status filtering.
+ * Payloads are automatically decrypted for consumption.
  */
 export async function getOutboxItems(filter?: { status?: OutboxStatus }): Promise<OutboxItem[]> {
   const db = await getDatabase();
+  let rows: OutboxItem[];
   if (filter?.status) {
-    return await db.getAllAsync<OutboxItem>(
+    rows = await db.getAllAsync<OutboxItem>(
       `SELECT id, recipient, payload, attempts, status, nextRetryAt, createdAt
        FROM outbox_queue
        WHERE status = ?
        ORDER BY createdAt DESC;`,
       filter.status
     );
+  } else {
+    rows = await db.getAllAsync<OutboxItem>(
+      `SELECT id, recipient, payload, attempts, status, nextRetryAt, createdAt
+       FROM outbox_queue
+       ORDER BY createdAt DESC;`
+    );
   }
-  return await db.getAllAsync<OutboxItem>(
-    `SELECT id, recipient, payload, attempts, status, nextRetryAt, createdAt
-     FROM outbox_queue
-     ORDER BY createdAt DESC;`
+  return await decryptOutboxItems(rows);
+}
+
+/**
+ * Migrates any legacy unencrypted payloads in SQLite outbox_queue to authenticated AES-256-GCM ciphertext.
+ */
+export async function migrateOutboxQueuePayloads(customDb?: ISQLiteDatabase): Promise<number> {
+  const db = customDb ?? (await getDatabase());
+  const rows = await db.getAllAsync<OutboxItem>(
+    `SELECT id, recipient, payload, attempts, status, nextRetryAt, createdAt FROM outbox_queue;`
   );
+
+  let migratedCount = 0;
+  for (const row of rows) {
+    if (!isEncryptedPayload(row.payload)) {
+      const encrypted = await encryptString(row.payload);
+      await db.runAsync(
+        `UPDATE outbox_queue SET payload = ? WHERE id = ?;`,
+        encrypted,
+        row.id
+      );
+      migratedCount++;
+    }
+  }
+  return migratedCount;
 }
 
 /**
