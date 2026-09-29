@@ -8,3 +8,4 @@ export * from './useAppLock';
 export * from './LockScreen';
 export * from './encryption';
 export * from './storageMigration';
+export { DecoyScreen } from '../contacts/DecoyScreen';

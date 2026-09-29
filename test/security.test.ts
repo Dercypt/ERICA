@@ -41,6 +41,12 @@ import {
   isPinConfigured,
   changePin,
   resetSecurity,
+  isDuressPinConfigured,
+  setupDuressPin,
+  validateDuressPin,
+  changeDuressPin,
+  removeDuressPin,
+  authenticatePin,
 } from '../src/features/security';
 
 test.beforeEach(() => {
@@ -280,4 +286,96 @@ test('10. PIN Change with salt rotation and Security Reset', async () => {
   assert.strictEqual(await isPinConfigured(), false, 'PIN must not be configured after reset');
   assert.strictEqual(await hasMasterKey(), false, 'Master key must not exist after reset');
   assert.strictEqual(isVaultLocked(), true, 'Vault must be locked after reset');
+});
+
+test('11. Secondary Duress PIN: Setup, collision rejection, and PBKDF2 stretching', async () => {
+  // 1. Cannot set Duress PIN if Primary PIN is not configured
+  assert.strictEqual(await isPinConfigured(), false);
+  assert.strictEqual(await isDuressPinConfigured(), false);
+  await assert.rejects(
+    async () => setupDuressPin('9999', 1_000),
+    /Primary PIN must be configured/
+  );
+
+  // 2. Configure primary PIN
+  await setupPin('1234', 1_000);
+  assert.strictEqual(await isPinConfigured(), true);
+
+  // 3. Duress PIN must be >= 4 characters
+  await assert.rejects(
+    async () => setupDuressPin('12', 1_000),
+    /at least 4 characters/
+  );
+
+  // 4. Duress PIN cannot collide with Primary PIN
+  await assert.rejects(
+    async () => setupDuressPin('1234', 1_000),
+    /Duress PIN cannot be the same as your primary PIN/
+  );
+
+  // 5. Successful setup of distinct Duress PIN
+  await setupDuressPin('9999', 1_000);
+  assert.strictEqual(await isDuressPinConfigured(), true);
+
+  // Stored duress record inspection
+  const duressRecordJson = (await getSecureItem('erica_duress_pin_record_v1'))!;
+  const duressRecord = JSON.parse(duressRecordJson);
+  assert.ok(duressRecord.salt, 'Duress record must contain cryptographic salt');
+  assert.ok(duressRecord.hash, 'Duress record must contain stretched hash');
+  assert.strictEqual(duressRecord.algorithm, 'PBKDF2-HMAC-SHA256');
+
+  // 6. Validation
+  assert.strictEqual(await validateDuressPin('9999'), true, 'Duress PIN must validate');
+  assert.strictEqual(await validateDuressPin('0000'), false, 'Incorrect PIN must fail duress validation');
+  assert.strictEqual(await validateDuressPin('1234'), false, 'Primary PIN must not validate as duress PIN');
+
+  // 7. authenticatePin discrimination
+  const authPrimary = await authenticatePin('1234');
+  assert.deepStrictEqual(authPrimary, { type: 'primary' }, 'Primary PIN must be identified as primary');
+
+  const authDuress = await authenticatePin('9999');
+  assert.deepStrictEqual(authDuress, { type: 'duress' }, 'Duress PIN must be identified as duress');
+
+  const authInvalid = await authenticatePin('5555');
+  assert.deepStrictEqual(authInvalid, { type: 'invalid' }, 'Unrecognized PIN must be identified as invalid');
+});
+
+test('12. Secondary Duress PIN: Change, collision guards, and removal', async () => {
+  await setupPin('2468', 1_000);
+  await setupDuressPin('1357', 1_000);
+
+  // Reject changing Duress PIN with wrong current PIN
+  const wrongOld = await changeDuressPin('0000', '9876', 1_000);
+  assert.strictEqual(wrongOld, false, 'changeDuressPin must fail with incorrect old PIN');
+
+  // Reject changing Duress PIN to match primary PIN
+  await assert.rejects(
+    async () => changeDuressPin('1357', '2468', 1_000),
+    /Duress PIN cannot be the same as your primary PIN/
+  );
+
+  // Reject changing primary PIN to match existing duress PIN
+  await assert.rejects(
+    async () => changePin('2468', '1357', 1_000),
+    /Primary PIN cannot be the same as your Duress PIN/
+  );
+
+  // Successful change of Duress PIN
+  const successChange = await changeDuressPin('1357', '9876', 1_000);
+  assert.strictEqual(successChange, true);
+  assert.strictEqual(await validateDuressPin('9876'), true);
+  assert.strictEqual(await validateDuressPin('1357'), false);
+
+  // Remove Duress PIN
+  await removeDuressPin();
+  assert.strictEqual(await isDuressPinConfigured(), false);
+  assert.strictEqual(await validateDuressPin('9876'), false);
+  assert.strictEqual(await isPinConfigured(), true, 'Primary PIN must remain unaffected by duress PIN removal');
+
+  // Security reset wipes everything including duress PIN if present
+  await setupDuressPin('4321', 1_000);
+  assert.strictEqual(await isDuressPinConfigured(), true);
+  await resetSecurity();
+  assert.strictEqual(await isPinConfigured(), false);
+  assert.strictEqual(await isDuressPinConfigured(), false);
 });

@@ -26,6 +26,7 @@ import {
 } from './masterKey';
 
 export const PIN_AUTH_STORAGE_KEY = 'erica_pin_auth_record_v1';
+export const DURESS_PIN_STORAGE_KEY = 'erica_duress_pin_record_v1';
 
 let vaultLocked = true;
 
@@ -41,6 +42,14 @@ export function isVaultLocked(): boolean {
  */
 export async function isPinConfigured(): Promise<boolean> {
   const recordJson = await getSecureItem(PIN_AUTH_STORAGE_KEY);
+  return Boolean(recordJson);
+}
+
+/**
+ * Checks whether a secondary Duress PIN has been configured on this device.
+ */
+export async function isDuressPinConfigured(): Promise<boolean> {
+  const recordJson = await getSecureItem(DURESS_PIN_STORAGE_KEY);
   return Boolean(recordJson);
 }
 
@@ -66,6 +75,33 @@ export async function setupPin(
 }
 
 /**
+ * Configures an optional secondary Duress PIN.
+ * Stretches the PIN with a unique salt and stores it in hardware-backed SecureStore.
+ * Must be distinct from the primary PIN.
+ */
+export async function setupDuressPin(
+  duressPin: string,
+  iterations: number = DEFAULT_PBKDF2_ITERATIONS
+): Promise<void> {
+  if (!duressPin || duressPin.length < 4) {
+    throw new Error('Duress PIN must be at least 4 characters in length.');
+  }
+
+  const primaryConfigured = await isPinConfigured();
+  if (!primaryConfigured) {
+    throw new Error('Primary PIN must be configured before setting a Duress PIN.');
+  }
+
+  const isSameAsPrimary = await validatePin(duressPin);
+  if (isSameAsPrimary) {
+    throw new Error('Duress PIN cannot be the same as your primary PIN.');
+  }
+
+  const record = await hashPin(duressPin, undefined, iterations);
+  await saveSecureItem(DURESS_PIN_STORAGE_KEY, JSON.stringify(record));
+}
+
+/**
  * Validates entered PIN against the stored stretched hash record.
  * Returns true if valid, false otherwise.
  */
@@ -83,6 +119,49 @@ export async function validatePin(pin: string): Promise<boolean> {
   }
 
   return await verifyPinHash(pin, record);
+}
+
+/**
+ * Validates entered PIN against the stored secondary duress stretched hash record.
+ * Returns true if valid, false otherwise.
+ */
+export async function validateDuressPin(duressPin: string): Promise<boolean> {
+  const rawRecord = await getSecureItem(DURESS_PIN_STORAGE_KEY);
+  if (!rawRecord) {
+    return false;
+  }
+
+  let record: StretchedPinRecord;
+  try {
+    record = JSON.parse(rawRecord);
+  } catch {
+    return false;
+  }
+
+  return await verifyPinHash(duressPin, record);
+}
+
+export type PinAuthResult =
+  | { type: 'primary' }
+  | { type: 'duress' }
+  | { type: 'invalid' };
+
+/**
+ * Authenticates an entered PIN and determines whether it corresponds to the primary PIN,
+ * the secondary Duress PIN, or is invalid.
+ */
+export async function authenticatePin(pin: string): Promise<PinAuthResult> {
+  const isPrimary = await validatePin(pin);
+  if (isPrimary) {
+    return { type: 'primary' };
+  }
+
+  const isDuress = await validateDuressPin(pin);
+  if (isDuress) {
+    return { type: 'duress' };
+  }
+
+  return { type: 'invalid' };
 }
 
 /**
@@ -137,17 +216,57 @@ export async function changePin(
     throw new Error('New PIN must be at least 4 characters in length.');
   }
 
+  const isSameAsDuress = await validateDuressPin(newPin);
+  if (isSameAsDuress) {
+    throw new Error('Primary PIN cannot be the same as your Duress PIN.');
+  }
+
   const newRecord = await hashPin(newPin, undefined, iterations);
   await saveSecureItem(PIN_AUTH_STORAGE_KEY, JSON.stringify(newRecord));
   return true;
 }
 
 /**
- * Resets all security state: wipes PIN auth record and master key from hardware store
+ * Changes the secondary Duress PIN. Requires verification of the current Duress PIN first.
+ */
+export async function changeDuressPin(
+  currentDuressPin: string,
+  newDuressPin: string,
+  iterations: number = DEFAULT_PBKDF2_ITERATIONS
+): Promise<boolean> {
+  const isCurrentValid = await validateDuressPin(currentDuressPin);
+  if (!isCurrentValid) {
+    return false;
+  }
+
+  if (!newDuressPin || newDuressPin.length < 4) {
+    throw new Error('New Duress PIN must be at least 4 characters in length.');
+  }
+
+  const isSameAsPrimary = await validatePin(newDuressPin);
+  if (isSameAsPrimary) {
+    throw new Error('Duress PIN cannot be the same as your primary PIN.');
+  }
+
+  const newRecord = await hashPin(newDuressPin, undefined, iterations);
+  await saveSecureItem(DURESS_PIN_STORAGE_KEY, JSON.stringify(newRecord));
+  return true;
+}
+
+/**
+ * Removes the secondary Duress PIN from secure storage.
+ */
+export async function removeDuressPin(): Promise<void> {
+  await deleteSecureItem(DURESS_PIN_STORAGE_KEY);
+}
+
+/**
+ * Resets all security state: wipes PIN auth record, duress record, and master key from hardware store
  * and zeroes out working memory.
  */
 export async function resetSecurity(): Promise<void> {
   lockVault();
   await deleteSecureItem(PIN_AUTH_STORAGE_KEY);
+  await deleteSecureItem(DURESS_PIN_STORAGE_KEY);
   await deleteMasterKey();
 }

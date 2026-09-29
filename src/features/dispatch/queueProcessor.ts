@@ -59,6 +59,13 @@ export function configureDispatchEngineOverrides(options: {
 }
 
 /**
+ * Checks whether telephony SMS is available (via native module or configured override).
+ */
+export async function isSmsAvailable(): Promise<boolean> {
+  return await availabilityCheck();
+}
+
+/**
  * Resets dispatch engine overrides back to default native module bindings.
  */
 export function resetDispatchEngineOverrides(): void {

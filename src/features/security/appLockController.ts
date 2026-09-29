@@ -10,9 +10,11 @@
 import { AppState, type AppStateStatus } from 'react-native';
 import {
   isPinConfigured,
+  isDuressPinConfigured,
   isVaultLocked,
   lockVault,
   unlockWithPin as securityUnlockWithPin,
+  authenticatePin,
 } from './pinAuth';
 import {
   unlockWithBiometrics as securityUnlockWithBiometrics,
@@ -20,17 +22,22 @@ import {
   type BiometricAuthResult,
 } from './biometrics';
 import { getSettings, saveSettings } from '../settings/settingsStorage';
+import { triggerDuressSilentSos } from '../dispatch/duressDispatch';
 
 export interface AppLockSnapshot {
   isLocked: boolean;
   isPinConfigured: boolean;
+  isDuressPinConfigured: boolean;
+  isDuressMode: boolean;
   isBiometricsAvailable: boolean;
   lockTimeoutSeconds: number;
 }
 
 export class AppLockController {
   private isLocked: boolean = true;
+  private isDuressMode: boolean = false;
   private isPinConfigured: boolean = false;
+  private isDuressPinConfigured: boolean = false;
   private isBiometricsAvailable: boolean = false;
   private lockTimeoutSeconds: number = 0; // Default 0: Immediate lock
   private lastBackgroundedAt: number | null = null;
@@ -54,7 +61,9 @@ export class AppLockController {
     }
 
     this.isPinConfigured = await isPinConfigured();
+    this.isDuressPinConfigured = await isDuressPinConfigured();
     this.isBiometricsAvailable = await isBiometricsAvailable();
+    this.isDuressMode = false;
 
     const settings = await getSettings();
     this.lockTimeoutSeconds = settings.appLockTimeoutSeconds ?? 0;
@@ -152,22 +161,50 @@ export class AppLockController {
       return;
     }
     this.isLocked = true;
+    this.isDuressMode = false;
     lockVault();
     this.clearIdleTimer();
     this.notify();
   }
 
   /**
-   * Unlocks the app using the custom PIN.
+   * Unlocks the app using either the custom primary PIN or secondary Duress PIN.
    */
   public async unlockWithPin(pin: string): Promise<boolean> {
-    const success = await securityUnlockWithPin(pin);
-    if (success) {
+    const pinResult = await authenticatePin(pin);
+
+    if (pinResult.type === 'primary') {
+      const success = await securityUnlockWithPin(pin);
+      if (success) {
+        this.isLocked = false;
+        this.isDuressMode = false;
+        this.resetIdleTimer();
+        this.notify();
+        return true;
+      }
+      return false;
+    }
+
+    if (pinResult.type === 'duress') {
+      // Coercion Threat Model:
+      // Real vault remains locked; master key memory remains completely purged
+      lockVault();
       this.isLocked = false;
+      this.isDuressMode = true;
       this.resetIdleTimer();
       this.notify();
+
+      // Optionally trigger stealth silent SOS ping in background if configured
+      const settings = await getSettings();
+      if (settings.duressSilentSosEnabled) {
+        triggerDuressSilentSos().catch((err) => {
+          console.warn('[appLockController] Failed to dispatch silent duress SOS:', err);
+        });
+      }
+
       return true;
     }
+
     return false;
   }
 
@@ -180,6 +217,7 @@ export class AppLockController {
     const result = await securityUnlockWithBiometrics({ promptMessage });
     if (result.success) {
       this.isLocked = false;
+      this.isDuressMode = false;
       this.resetIdleTimer();
       this.notify();
     }
@@ -207,11 +245,13 @@ export class AppLockController {
    */
   public async refreshState(): Promise<void> {
     this.isPinConfigured = await isPinConfigured();
+    this.isDuressPinConfigured = await isDuressPinConfigured();
     this.isBiometricsAvailable = await isBiometricsAvailable();
     const settings = await getSettings();
     this.lockTimeoutSeconds = settings.appLockTimeoutSeconds ?? 0;
     if (!this.isPinConfigured) {
       this.isLocked = false;
+      this.isDuressMode = false;
     }
     this.notify();
   }
@@ -223,6 +263,8 @@ export class AppLockController {
     return {
       isLocked: this.isLocked,
       isPinConfigured: this.isPinConfigured,
+      isDuressPinConfigured: this.isDuressPinConfigured,
+      isDuressMode: this.isDuressMode,
       isBiometricsAvailable: this.isBiometricsAvailable,
       lockTimeoutSeconds: this.lockTimeoutSeconds,
     };
@@ -252,6 +294,8 @@ export class AppLockController {
     this.appStateSubscription = null;
     this.listeners.clear();
     this.initialized = false;
+    this.isDuressMode = false;
+    this.isDuressPinConfigured = false;
   }
 }
 
