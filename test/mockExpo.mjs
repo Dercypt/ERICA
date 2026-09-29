@@ -25,7 +25,38 @@ export function createPermissionHook() {
 export function isRunningInExpoGo() {
   return false;
 }
+const secureStoreMap = new Map();
+
+export function resetMockSecureStore() {
+  secureStoreMap.clear();
+}
+
 export function requireNativeModule(name) {
+  if (name === 'ExpoSecureStore') {
+    return {
+      isAvailableAsync: async () => true,
+      getValueWithKeyAsync: async (key) => secureStoreMap.get(key) ?? null,
+      setValueWithKeyAsync: async (value, key) => {
+        secureStoreMap.set(key, String(value));
+      },
+      deleteValueWithKeyAsync: async (key) => {
+        secureStoreMap.delete(key);
+      },
+      getValueWithKeySync: (key) => secureStoreMap.get(key) ?? null,
+      setValueWithKeySync: (value, key) => {
+        secureStoreMap.set(key, String(value));
+      },
+      canUseBiometricAuthentication: () => true,
+      AFTER_FIRST_UNLOCK: 0,
+      AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 1,
+      ALWAYS: 2,
+      WHEN_PASSCODE_SET_THIS_DEVICE_ONLY: 3,
+      ALWAYS_THIS_DEVICE_ONLY: 4,
+      WHEN_UNLOCKED: 5,
+      WHEN_UNLOCKED_THIS_DEVICE_ONLY: 6,
+    };
+  }
+
   return {
     isAvailableAsync: async () => false,
     sendSilentSms: async () => false,
