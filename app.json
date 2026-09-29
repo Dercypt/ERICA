@@ -25,7 +25,8 @@
     },
     "plugins": [
       "./plugins/withEricaAndroidConfig",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-secure-store"
     ]
   }
 }
