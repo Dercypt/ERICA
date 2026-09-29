@@ -7,3 +7,4 @@ export * from './appLockController';
 export * from './useAppLock';
 export * from './LockScreen';
 export * from './encryption';
+export * from './storageMigration';
