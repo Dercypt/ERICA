@@ -241,6 +241,19 @@ export function getSosService() {
 }
 
 /**
+ * Resets the singleton emergency state machine actor (stops it and clears reference).
+ * Useful for test suites and security resets.
+ */
+export function resetSosService(): void {
+  if (sharedSosService) {
+    try {
+      sharedSosService.stop();
+    } catch {}
+    sharedSosService = null;
+  }
+}
+
+/**
  * React hook to subscribe to the global emergency state machine.
  */
 export function useSosService() {

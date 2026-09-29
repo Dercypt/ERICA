@@ -7,6 +7,8 @@ const mockAsyncStorageUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mock
 const mockLocalAuthenticationUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockLocalAuthentication.mjs')).href;
 const mockReactNativeUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockReactNative.mjs')).href;
 
+const mockLocationUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockLocation.mjs')).href;
+const mockNetInfoUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockNetInfo.mjs')).href;
 const mockComponentUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockComponent.mjs')).href;
 
 export async function resolve(specifier, context, nextResolve) {
@@ -15,6 +17,12 @@ export async function resolve(specifier, context, nextResolve) {
   }
   if (specifier === 'expo' || specifier === 'expo-modules-core') {
     return nextResolve(mockExpoUrl, context);
+  }
+  if (specifier === 'expo-location') {
+    return nextResolve(mockLocationUrl, context);
+  }
+  if (specifier === '@react-native-community/netinfo') {
+    return nextResolve(mockNetInfoUrl, context);
   }
   if (specifier === 'expo-local-authentication') {
     return nextResolve(mockLocalAuthenticationUrl, context);
