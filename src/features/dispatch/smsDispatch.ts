@@ -3,7 +3,7 @@ import type { Contact } from '../contacts/contactsStorage';
 import type { LocationResult } from '../location/locationService';
 import { mapsLinkFor } from '../location/locationService';
 import { getSettings } from '../settings/settingsStorage';
-import { enqueueAndDispatch } from './queueProcessor';
+import { enqueueAndDispatch, isSmsAvailable } from './queueProcessor';
 
 export interface DispatchResult {
   attempted: boolean;
@@ -22,7 +22,7 @@ interface DispatchParams {
  */
 export async function dispatchEmergencySms({ contacts, location, triggerSource }: DispatchParams): Promise<DispatchResult> {
   const recipients = contacts.map((c) => c.phoneNumber);
-  if (recipients.length === 0 || !(await isAvailableAsync())) {
+  if (recipients.length === 0 || !(await isSmsAvailable())) {
     return { attempted: false, recipients };
   }
 
@@ -51,7 +51,7 @@ export async function dispatchEmergencySms({ contacts, location, triggerSource }
 
 export async function dispatchSafeSms(contacts: Contact[]): Promise<DispatchResult> {
   const recipients = contacts.map((c) => c.phoneNumber);
-  if (recipients.length === 0 || !(await isAvailableAsync())) {
+  if (recipients.length === 0 || !(await isSmsAvailable())) {
     return { attempted: false, recipients };
   }
 

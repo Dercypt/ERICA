@@ -19,6 +19,10 @@ export interface Settings {
   // App Lock & Biometric Gatekeeper
   appLockTimeoutSeconds?: number; // 0 = Immediate, 15, 30, 60
   biometricsEnabled?: boolean;
+
+  // Duress PIN & Anti-Coercion Protection
+  duressSilentSosEnabled?: boolean;
+  decoyContactsType?: 'mock' | 'empty';
 }
 
 const STORAGE_KEY = '@erica/settings';
@@ -42,6 +46,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // App Lock Defaults: Immediate lock, Biometrics enabled
   appLockTimeoutSeconds: 0,
   biometricsEnabled: true,
+
+  // Duress PIN Defaults: Silent SOS off by default, Mock contacts default
+  duressSilentSosEnabled: false,
+  decoyContactsType: 'mock',
 };
 
 export async function getSettings(): Promise<Settings> {

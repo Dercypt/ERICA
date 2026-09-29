@@ -29,6 +29,10 @@ import {
   configureDispatchEngineOverrides,
   resetDispatchEngineOverrides,
 } from '../src/features/dispatch/queueProcessor';
+import { triggerDuressSilentSos } from '../src/features/dispatch/duressDispatch';
+import { saveContacts } from '../src/features/contacts/contactsStorage';
+import { getHistory, clearHistory } from '../src/features/history/historyStorage';
+import { resetMockSecureStore } from './mockExpo.mjs';
 import { MockSQLiteDatabase } from './mockDatabase';
 import type { NetInfoState } from '@react-native-community/netinfo';
 
@@ -293,3 +297,62 @@ test('5. End-to-End: Dead Zone Queue Persistence & Instant Flush on Cellular Res
   teardownEngine();
   resetDispatchEngineOverrides();
 });
+
+test('9. Duress Silent SOS: Stealth background dispatch without countdown or alarms', async () => {
+  resetMockSecureStore();
+  await clearHistory();
+
+  const mockDb = new MockSQLiteDatabase();
+  let deliveredRecipients: string[] = [];
+  let deliveredMessage: string = '';
+
+  configureDispatchEngineOverrides({
+    silentSmsSender: async (recipients, msg) => {
+      deliveredRecipients = recipients;
+      deliveredMessage = msg;
+      return true;
+    },
+    availabilityChecker: async () => true,
+  });
+
+  const teardownEngine = await initDispatchEngine({
+    customDb: mockDb,
+    silentSmsSender: async (recipients, msg) => {
+      deliveredRecipients = recipients;
+      deliveredMessage = msg;
+      return true;
+    },
+    availabilityChecker: async () => true,
+  });
+
+  try {
+    // 1. When no contacts configured: returns triggered: false safely without throwing
+    const noContactsResult = await triggerDuressSilentSos();
+    assert.strictEqual(noContactsResult.triggered, false);
+    assert.strictEqual(deliveredRecipients.length, 0);
+
+    // 2. Setup trusted contact
+    await saveContacts([
+      { id: 'c1', name: 'Emergency Contact 1', phoneNumber: '+19998887777' },
+    ]);
+
+    // 3. Trigger duress silent SOS
+    const successResult = await triggerDuressSilentSos();
+    assert.strictEqual(successResult.triggered, true);
+    assert.deepStrictEqual(successResult.recipients, ['+19998887777']);
+
+    // Verify SMS message content
+    assert.ok(deliveredMessage.includes('EMERGENCY ALERT'));
+    assert.ok(deliveredMessage.includes('Triggered via: Duress PIN (Silent SOS)'));
+
+    // Verify history entry logged
+    const history = await getHistory();
+    assert.strictEqual(history.length, 1);
+    assert.strictEqual(history[0].triggerSource, 'Duress PIN (Silent SOS)');
+    assert.strictEqual(history[0].resolvedAt, null);
+  } finally {
+    teardownEngine();
+    resetDispatchEngineOverrides();
+  }
+});
+
