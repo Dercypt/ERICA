@@ -4,6 +4,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from './settingsStorage';
 import {
+  isPinConfigured,
+  setupPin,
+  changePin,
+  useAppLock,
+  getBiometricCapabilities,
+  type BiometricCapabilities,
+} from '../security';
+import {
   configureVolumeTrigger,
   configureShakeTrigger,
   startShakeSensitivityTest,
@@ -71,6 +79,23 @@ export function SettingsScreen() {
   const [retryCeilingText, setRetryCeilingText] = useState('60');
   const [saved, setSaved] = useState(false);
 
+  // App Lock & Biometrics state
+  const { lock, refreshState: refreshLockState } = useAppLock();
+  const [pinConfigured, setPinConfigured] = useState(false);
+  const [biometricsCap, setBiometricsCap] = useState<BiometricCapabilities>({
+    hasHardware: false,
+    isEnrolled: false,
+    supportedTypes: [],
+    enrolledLevel: 0,
+  });
+  const [biometricsEnabled, setBiometricsEnabled] = useState(true);
+  const [lockTimeout, setLockTimeout] = useState(0);
+  const [pinInput, setPinInput] = useState('');
+  const [currentPinInput, setCurrentPinInput] = useState('');
+  const [pinConfirmInput, setPinConfirmInput] = useState('');
+  const [pinMessage, setPinMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [isChangingPin, setIsChangingPin] = useState(false);
+
   // Volume button pattern state
   const [volumeEnabled, setVolumeEnabled] = useState(false);
   const [volumePressCount, setVolumePressCount] = useState(4);
@@ -124,6 +149,8 @@ export function SettingsScreen() {
         setShakeThreshold(s.shakeThreshold ?? 25);
         setShakeMinCount(s.shakeMinCount ?? 3);
         setShakeAlpha(s.shakeHighPassAlpha ?? 0.8);
+        setBiometricsEnabled(s.biometricsEnabled ?? true);
+        setLockTimeout(s.appLockTimeoutSeconds ?? 0);
 
         volumeEngineRef.current.configure({
           enabled: true,
@@ -138,8 +165,58 @@ export function SettingsScreen() {
           highPassAlpha: s.shakeHighPassAlpha ?? 0.8,
         });
       });
+
+      isPinConfigured().then(setPinConfigured);
+      getBiometricCapabilities().then(setBiometricsCap);
     }, [])
   );
+
+  const handleSetupPin = async () => {
+    if (pinInput.length < 4) {
+      setPinMessage({ text: 'PIN must be at least 4 digits', error: true });
+      return;
+    }
+    if (pinInput !== pinConfirmInput) {
+      setPinMessage({ text: 'PINs do not match', error: true });
+      return;
+    }
+    try {
+      await setupPin(pinInput);
+      setPinConfigured(true);
+      setPinInput('');
+      setPinConfirmInput('');
+      setPinMessage({ text: 'PIN successfully configured!', error: false });
+      await refreshLockState();
+    } catch {
+      setPinMessage({ text: 'Failed to configure PIN', error: true });
+    }
+  };
+
+  const handleChangePin = async () => {
+    if (pinInput.length < 4) {
+      setPinMessage({ text: 'New PIN must be at least 4 digits', error: true });
+      return;
+    }
+    if (pinInput !== pinConfirmInput) {
+      setPinMessage({ text: 'New PINs do not match', error: true });
+      return;
+    }
+    try {
+      const success = await changePin(currentPinInput, pinInput);
+      if (!success) {
+        setPinMessage({ text: 'Current PIN is incorrect', error: true });
+        return;
+      }
+      setPinInput('');
+      setCurrentPinInput('');
+      setPinConfirmInput('');
+      setIsChangingPin(false);
+      setPinMessage({ text: 'PIN successfully updated!', error: false });
+      await refreshLockState();
+    } catch {
+      setPinMessage({ text: 'Failed to change PIN', error: true });
+    }
+  };
 
   // Listen for shake sensitivity test samples
   useEffect(() => {
@@ -279,9 +356,12 @@ export function SettingsScreen() {
       shakeThreshold,
       shakeMinCount,
       shakeHighPassAlpha: shakeAlpha,
+      appLockTimeoutSeconds: lockTimeout,
+      biometricsEnabled,
     };
 
     await saveSettings(toSave);
+    await refreshLockState();
     await configureVolumeTrigger({
       enabled: volumeEnabled,
       pressCount: volumePressCount,
@@ -353,6 +433,192 @@ export function SettingsScreen() {
             placeholderTextColor="#8E8E93"
             multiline
           />
+        </View>
+
+        {/* Section: Security, Biometrics & App Lock Gatekeeper */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionHeader}>Security & App Lock Gatekeeper</Text>
+          <Text style={styles.helperText}>
+            Protects your UI and sensitive contact/history logs with PBKDF2 stretched PIN and biometrics.
+          </Text>
+
+          {/* PIN Status & Configuration */}
+          <View style={styles.subSection}>
+            <View style={styles.pinStatusRow}>
+              <Text style={styles.triggerTitle}>
+                {pinConfigured ? 'Vault Protected (PIN Active)' : 'No PIN Configured'}
+              </Text>
+              {pinConfigured ? (
+                <Pressable
+                  style={styles.lockNowButton}
+                  onPress={() => lock()}
+                  accessibilityLabel="Lock App Now"
+                >
+                  <Text style={styles.lockNowButtonText}>Lock Now</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            {pinMessage ? (
+              <Text
+                style={[
+                  styles.pinFeedbackText,
+                  pinMessage.error ? styles.pinFeedbackError : styles.pinFeedbackSuccess,
+                ]}
+              >
+                {pinMessage.text}
+              </Text>
+            ) : null}
+
+            {!pinConfigured ? (
+              <View style={styles.pinForm}>
+                <Text style={styles.label}>Set 4-8 Digit Custom PIN</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="New PIN (min 4 digits)"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={pinInput}
+                  onChangeText={setPinInput}
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 8 }]}
+                  placeholder="Confirm New PIN"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={pinConfirmInput}
+                  onChangeText={setPinConfirmInput}
+                />
+                <Pressable style={styles.pinActionButton} onPress={handleSetupPin}>
+                  <Text style={styles.pinActionButtonText}>Enable App Lock</Text>
+                </Pressable>
+              </View>
+            ) : isChangingPin ? (
+              <View style={styles.pinForm}>
+                <Text style={styles.label}>Change PIN</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Current PIN"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={currentPinInput}
+                  onChangeText={setCurrentPinInput}
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 8 }]}
+                  placeholder="New PIN (min 4 digits)"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={pinInput}
+                  onChangeText={setPinInput}
+                />
+                <TextInput
+                  style={[styles.input, { marginTop: 8 }]}
+                  placeholder="Confirm New PIN"
+                  placeholderTextColor="#8E8E93"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  value={pinConfirmInput}
+                  onChangeText={setPinConfirmInput}
+                />
+                <View style={styles.pinActionRow}>
+                  <Pressable
+                    style={[styles.pinActionButton, { flex: 1 }]}
+                    onPress={handleChangePin}
+                  >
+                    <Text style={styles.pinActionButtonText}>Update PIN</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.pinCancelButton, { flex: 1 }]}
+                    onPress={() => {
+                      setIsChangingPin(false);
+                      setPinInput('');
+                      setCurrentPinInput('');
+                      setPinConfirmInput('');
+                      setPinMessage(null);
+                    }}
+                  >
+                    <Text style={styles.pinCancelButtonText}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Pressable
+                style={styles.changePinButton}
+                onPress={() => {
+                  setIsChangingPin(true);
+                  setPinMessage(null);
+                }}
+              >
+                <Text style={styles.changePinButtonText}>Change Custom PIN</Text>
+              </Pressable>
+            )}
+          </View>
+
+          {/* Biometrics Toggle */}
+          <View style={styles.subSection}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Biometric Verification</Text>
+                <Text style={styles.triggerSubtitle}>
+                  {biometricsCap.supportedTypes.length > 0
+                    ? `Use ${biometricsCap.supportedTypes.join(' / ')} with seamless PIN fallback`
+                    : 'Fingerprint / Face Unlock with seamless PIN fallback'}
+                </Text>
+              </View>
+              <Switch
+                value={biometricsEnabled}
+                onValueChange={(val) => {
+                  setBiometricsEnabled(val);
+                  setSettings((s) => ({ ...s, biometricsEnabled: val }));
+                }}
+                trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+          </View>
+
+          {/* Lock Timeout Selection */}
+          <View style={styles.subSection}>
+            <Text style={styles.triggerTitle}>App Lock Timeout</Text>
+            <Text style={styles.triggerSubtitle}>
+              Engage lock state immediately when backgrounded or after an idle timeout.
+            </Text>
+
+            <View style={styles.timeoutOptionsRow}>
+              {[
+                { label: 'Immediate', value: 0 },
+                { label: '15s', value: 15 },
+                { label: '30s', value: 30 },
+                { label: '60s', value: 60 },
+              ].map((opt) => (
+                <Pressable
+                  key={opt.value}
+                  style={[
+                    styles.timeoutOptionButton,
+                    lockTimeout === opt.value && styles.timeoutOptionActive,
+                  ]}
+                  onPress={() => {
+                    setLockTimeout(opt.value);
+                    setSettings((s) => ({ ...s, appLockTimeoutSeconds: opt.value }));
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.timeoutOptionText,
+                      lockTimeout === opt.value && styles.timeoutOptionTextActive,
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
         </View>
 
         {/* Section: Physical Triggers - Strict Safety Defaults */}
@@ -636,6 +902,65 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   meterFill: { height: '100%', borderRadius: 5 },
+  pinStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  lockNowButton: {
+    backgroundColor: '#3A1014',
+    borderColor: '#D7263D',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  lockNowButtonText: { color: '#FF4D4D', fontSize: 12, fontWeight: '700' },
+  pinFeedbackText: { fontSize: 13, marginBottom: 8, fontWeight: '500' },
+  pinFeedbackSuccess: { color: '#4EBA6F' },
+  pinFeedbackError: { color: '#FF4D4D' },
+  pinForm: { marginTop: 8 },
+  pinActionButton: {
+    backgroundColor: '#D7263D',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  pinActionButtonText: { color: 'white', fontSize: 14, fontWeight: '700' },
+  pinActionRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  pinCancelButton: {
+    backgroundColor: '#2A2A32',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  pinCancelButtonText: { color: '#C7C7CC', fontSize: 14, fontWeight: '600' },
+  changePinButton: {
+    backgroundColor: '#2A2A32',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  changePinButtonText: { color: 'white', fontSize: 13, fontWeight: '600' },
+  timeoutOptionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  timeoutOptionButton: {
+    flex: 1,
+    backgroundColor: '#1E1E26',
+    borderWidth: 1,
+    borderColor: '#343442',
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  timeoutOptionActive: {
+    backgroundColor: '#D7263D',
+    borderColor: '#D7263D',
+  },
+  timeoutOptionText: { color: '#8E8E93', fontSize: 12, fontWeight: '600' },
+  timeoutOptionTextActive: { color: 'white', fontWeight: '700' },
   saveButton: {
     backgroundColor: '#D7263D',
     borderRadius: 8,

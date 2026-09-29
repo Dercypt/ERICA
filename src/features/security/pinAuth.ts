@@ -102,6 +102,15 @@ export async function unlockWithPin(pin: string): Promise<boolean> {
 }
 
 /**
+ * Directly unlocks the vault and loads the master key into active memory.
+ * Invoked by biometric verification upon authenticated fingerprint/face unlock.
+ */
+export async function unlockVaultWithMasterKey(): Promise<void> {
+  await loadMasterKey();
+  vaultLocked = false;
+}
+
+/**
  * Locks the security vault.
  * Immediately purges the unencrypted master key from memory and wipes all active buffers.
  */

@@ -17,6 +17,11 @@ class MainActivity : ReactActivity() {
     // This is required for expo-splash-screen.
     setTheme(R.style.AppTheme);
     super.onCreate(null)
+    // Screenshot & Task Switcher Protection: blank out Recent Apps switcher previews and block OS screenshots
+    window.setFlags(
+      android.view.WindowManager.LayoutParams.FLAG_SECURE,
+      android.view.WindowManager.LayoutParams.FLAG_SECURE
+    )
   }
 
   /**

@@ -1,9 +1,12 @@
 import React, { useEffect } from 'react';
+import { View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator, navigationRef } from './src/app';
 import { initDispatchEngine } from './src/features/dispatch';
 import { getSettings } from './src/features/settings';
+import { getSosService } from './src/features/sos';
+import { useAppLock, LockScreen } from './src/features/security';
 import {
   configureVolumeTrigger,
   configureShakeTrigger,
@@ -25,7 +28,12 @@ export async function initPhysicalTriggers(): Promise<() => void> {
     highPassAlpha: settings.shakeHighPassAlpha ?? 0.8,
   }).catch((err) => console.warn('[App] Failed to configure shake trigger:', err));
 
-  const sub = addPanicTriggerListener(() => {
+  const sub = addPanicTriggerListener((event) => {
+    // CRITICAL THREAT-MODEL GUARD: Emergency Dispatch Bypass
+    // The PIN gate protects UI and data inspection screens only.
+    // If a user triggers SOS via hardware volume buttons or shake while the phone is locked,
+    // the background dispatch queue and SMS sending proceed unimpeded without prompting for a PIN.
+    getSosService().send({ type: 'TRIGGER', source: event?.source });
     if (navigationRef.isReady()) {
       navigationRef.navigate('SOS' as never);
     }
@@ -34,6 +42,26 @@ export async function initPhysicalTriggers(): Promise<() => void> {
   return () => {
     sub.remove();
   };
+}
+
+function MainApp() {
+  const { isLocked, isPinConfigured, recordActivity } = useAppLock();
+
+  if (isPinConfigured && isLocked) {
+    return <LockScreen />;
+  }
+
+  return (
+    <View
+      style={{ flex: 1 }}
+      onStartShouldSetResponderCapture={() => {
+        recordActivity();
+        return false;
+      }}
+    >
+      <RootNavigator />
+    </View>
+  );
 }
 
 export default function App() {
@@ -66,7 +94,7 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <RootNavigator />
+      <MainApp />
     </SafeAreaProvider>
   );
 }

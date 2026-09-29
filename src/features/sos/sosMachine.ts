@@ -1,4 +1,5 @@
-import { setup, assign, fromPromise, fromCallback } from 'xstate';
+import { setup, assign, fromPromise, fromCallback, createActor } from 'xstate';
+import { useSelector } from '@xstate/react';
 import { getContacts } from '../contacts/contactsStorage';
 import { getSettings } from '../settings/settingsStorage';
 import { getCurrentLocation, type LocationResult } from '../location/locationService';
@@ -223,3 +224,28 @@ export const sosMachine = setup({
     },
   },
 });
+
+let sharedSosService: ReturnType<typeof createActor<typeof sosMachine>> | null = null;
+
+/**
+ * Returns the singleton running instance of the emergency state machine actor.
+ * Ensures hardware panic triggers (volume / shake) immediately execute background
+ * dispatch and SMS sending without requiring UI presence or PIN unlock.
+ */
+export function getSosService() {
+  if (!sharedSosService) {
+    sharedSosService = createActor(sosMachine);
+    sharedSosService.start();
+  }
+  return sharedSosService;
+}
+
+/**
+ * React hook to subscribe to the global emergency state machine.
+ */
+export function useSosService() {
+  const service = getSosService();
+  const snapshot = useSelector(service, (s) => s);
+  return [snapshot, (event: SosEvent) => service.send(event)] as const;
+}
+
