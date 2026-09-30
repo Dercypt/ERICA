@@ -30,6 +30,7 @@ import {
   saveContacts,
   addContact,
   CONTACTS_STORAGE_KEY,
+  DecryptionFailedError,
   type Contact,
 } from '../src/features/contacts/contactsStorage';
 import {
@@ -282,8 +283,11 @@ test('Task 2.6: Anti-Tampering Integrity on Disk: Corrupted or bit-flipped on-di
     'Tampered IV bytes on disk must fail AEAD verification'
   );
 
-  // 4. Overwrite disk with corrupted record and verify getContacts() gracefully returns empty array without crashing
+  // 4. Overwrite disk with corrupted record and verify getContacts() fails loudly with DecryptionFailedError
   await AsyncStorage.setItem(CONTACTS_STORAGE_KEY, JSON.stringify(tamperedCtEnv));
-  const recoveredContacts = await getContacts();
-  assert.deepStrictEqual(recoveredContacts, [], 'Storage getter must safely return empty array on corrupted on-disk ciphertext');
+  await assert.rejects(
+    async () => getContacts(),
+    (err: any) => err instanceof DecryptionFailedError || err?.name === 'DecryptionFailedError',
+    'Storage getter must fail loudly with DecryptionFailedError on corrupted on-disk ciphertext'
+  );
 });
