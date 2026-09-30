@@ -45,9 +45,29 @@ export class AppLockController {
   private appStateSubscription: { remove: () => void } | null = null;
   private listeners = new Set<(snapshot: AppLockSnapshot) => void>();
   private initialized = false;
+  private snapshot: AppLockSnapshot = {
+    isLocked: false,
+    isPinConfigured: false,
+    isDuressPinConfigured: false,
+    isDuressMode: false,
+    isBiometricsAvailable: false,
+    lockTimeoutSeconds: 0,
+  };
 
   constructor() {
     this.handleAppStateChange = this.handleAppStateChange.bind(this);
+    this.updateSnapshot();
+  }
+
+  private updateSnapshot(): void {
+    this.snapshot = {
+      isLocked: this.isLocked,
+      isPinConfigured: this.isPinConfigured,
+      isDuressPinConfigured: this.isDuressPinConfigured,
+      isDuressMode: this.isDuressMode,
+      isBiometricsAvailable: this.isBiometricsAvailable,
+      lockTimeoutSeconds: this.lockTimeoutSeconds,
+    };
   }
 
   /**
@@ -260,14 +280,7 @@ export class AppLockController {
    * Synchronous snapshot for React useSyncExternalStore or hooks.
    */
   public getSnapshot(): AppLockSnapshot {
-    return {
-      isLocked: this.isLocked,
-      isPinConfigured: this.isPinConfigured,
-      isDuressPinConfigured: this.isDuressPinConfigured,
-      isDuressMode: this.isDuressMode,
-      isBiometricsAvailable: this.isBiometricsAvailable,
-      lockTimeoutSeconds: this.lockTimeoutSeconds,
-    };
+    return this.snapshot;
   }
 
   /**
@@ -279,7 +292,8 @@ export class AppLockController {
   }
 
   private notify(): void {
-    const snapshot = this.getSnapshot();
+    this.updateSnapshot();
+    const snapshot = this.snapshot;
     for (const listener of Array.from(this.listeners)) {
       listener(snapshot);
     }
