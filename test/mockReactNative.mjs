@@ -39,6 +39,17 @@ export class TextInput {}
 export class ScrollView {}
 export class Switch {}
 
+export const Alert = {
+  alert: (title, message, buttons) => {},
+};
+
+export const TurboModuleRegistry = {
+  get: () => null,
+  getEnforcing: (name) => {
+    throw new Error(`TurboModule ${name} not available in mock`);
+  },
+};
+
 export default {
   AppState,
   StyleSheet,
@@ -49,4 +60,6 @@ export default {
   TextInput,
   ScrollView,
   Switch,
+  Alert,
+  TurboModuleRegistry,
 };

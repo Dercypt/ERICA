@@ -27,7 +27,8 @@
       "./plugins/withEricaAndroidConfig",
       "expo-sqlite",
       "expo-secure-store",
-      "expo-local-authentication"
+      "expo-local-authentication",
+      "react-native-quick-crypto"
     ]
   }
 }
