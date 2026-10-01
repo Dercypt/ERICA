@@ -13,3 +13,6 @@ ios/build/
 *.keystore
 modules/**/build/
 .gradle/
+.kotlin/
+android/.gradle/
+android/.kotlin/

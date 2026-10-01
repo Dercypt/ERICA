@@ -221,6 +221,14 @@ class EmergencyForegroundService : Service() {
       .build()
   }
 
+  override fun onTaskRemoved(rootIntent: Intent?) {
+    super.onTaskRemoved(rootIntent)
+    Log.d(TAG, "EmergencyForegroundService onTaskRemoved called (app swiped from Recent Apps switcher)")
+    if (isServiceRunning) {
+      Log.i(TAG, "Emergency dispatch active: retaining persistent foreground service sticky status")
+    }
+  }
+
   override fun onDestroy() {
     releaseWakeLock()
     isServiceRunning = false

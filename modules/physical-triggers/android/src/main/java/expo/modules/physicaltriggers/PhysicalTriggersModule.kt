@@ -1,6 +1,8 @@
 package expo.modules.physicaltriggers
 
 import android.content.Context
+import android.content.Intent
+import android.os.Build
 import android.util.Log
 import android.view.KeyEvent
 import expo.modules.kotlin.Promise
@@ -15,6 +17,8 @@ class PhysicalTriggersModule : Module() {
   companion object {
     private const val TAG = "PhysicalTriggersModule"
     private var instance: PhysicalTriggersModule? = null
+    var systemContext: Context? = null
+    var pendingPanicSource: String? = null
 
     val volumeDetector = VolumePatternDetector { source ->
       sendPanicEvent(source)
@@ -32,8 +36,44 @@ class PhysicalTriggersModule : Module() {
           "source" to source,
           "timestamp" to System.currentTimeMillis()
         )
-        instance?.sendEvent("onPanicTrigger", payload)
-          ?: Log.w(TAG, "PhysicalTriggersModule instance is null, cannot emit onPanicTrigger event")
+        if (instance != null) {
+          instance?.sendEvent("onPanicTrigger", payload)
+        } else {
+          Log.w(TAG, "PhysicalTriggersModule instance is null (app swiped away or backgrounded). Awakening app via EmergencyForegroundService & Intent for: $source")
+          pendingPanicSource = source
+          val ctx = systemContext
+          if (ctx != null) {
+            // 1. Elevate process to EmergencyForegroundService so OS does not kill it
+            try {
+              val serviceIntent = Intent().apply {
+                setClassName(ctx.packageName, "expo.modules.foregroundservice.EmergencyForegroundService")
+                action = "expo.modules.foregroundservice.ACTION_START"
+                putExtra("extra_title", "Emergency Alert Active")
+                putExtra("extra_message", "Emergency triggered via $source")
+              }
+              if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                ctx.startForegroundService(serviceIntent)
+              } else {
+                ctx.startService(serviceIntent)
+              }
+            } catch (e: Exception) {
+              Log.e(TAG, "Failed to start EmergencyForegroundService from headless trigger", e)
+            }
+
+            // 2. Launch MainActivity to wake up React Native JS runtime
+            try {
+              val launchIntent = ctx.packageManager.getLaunchIntentForPackage(ctx.packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra("extra_panic_trigger", source)
+              }
+              if (launchIntent != null) {
+                ctx.startActivity(launchIntent)
+              }
+            } catch (e: Exception) {
+              Log.e(TAG, "Failed to launch MainActivity from headless trigger", e)
+            }
+          }
+        }
       } catch (e: Exception) {
         Log.e(TAG, "Error emitting onPanicTrigger event", e)
       }
@@ -61,12 +101,20 @@ class PhysicalTriggersModule : Module() {
 
     OnCreate {
       instance = this@PhysicalTriggersModule
+      systemContext = context.applicationContext
       if (shakeDetector == null) {
         shakeDetector = ShakeDetector(
           context = context,
           onTrigger = { source -> sendPanicEvent(source) },
           onSample = { jerk, threshold, isSpike -> sendShakeSample(jerk, threshold, isSpike) }
         )
+      }
+
+      // Check if a panic event was captured while headless / task swiped
+      val pending = pendingPanicSource
+      if (pending != null) {
+        pendingPanicSource = null
+        sendPanicEvent(pending)
       }
     }
 

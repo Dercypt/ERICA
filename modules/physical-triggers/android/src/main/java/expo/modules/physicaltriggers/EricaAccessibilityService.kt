@@ -15,6 +15,12 @@ class EricaAccessibilityService : AccessibilityService() {
     private const val TAG = "EricaAccessibility"
   }
 
+  override fun onServiceConnected() {
+    super.onServiceConnected()
+    Log.i(TAG, "EricaAccessibilityService connected and ready")
+    PhysicalTriggersModule.systemContext = applicationContext
+  }
+
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {
     // Accessibility events not required for key monitoring
   }
@@ -24,6 +30,9 @@ class EricaAccessibilityService : AccessibilityService() {
   }
 
   override fun onKeyEvent(event: KeyEvent): Boolean {
+    if (PhysicalTriggersModule.systemContext == null) {
+      PhysicalTriggersModule.systemContext = applicationContext
+    }
     // Forward volume keys to the PhysicalTriggersModule
     val handled = PhysicalTriggersModule.onKeyEvent(event)
     return if (handled) {

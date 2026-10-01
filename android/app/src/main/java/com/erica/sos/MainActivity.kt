@@ -22,6 +22,33 @@ class MainActivity : ReactActivity() {
       android.view.WindowManager.LayoutParams.FLAG_SECURE,
       android.view.WindowManager.LayoutParams.FLAG_SECURE
     )
+
+    // Allow displaying emergency status over lockscreen when triggered
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+      setShowWhenLocked(true)
+      setTurnScreenOn(true)
+    } else {
+      @Suppress("DEPRECATION")
+      window.addFlags(
+        android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+        android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+      )
+    }
+
+    handleIncomingIntent(intent)
+  }
+
+  override fun onNewIntent(intent: android.content.Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleIncomingIntent(intent)
+  }
+
+  private fun handleIncomingIntent(intent: android.content.Intent?) {
+    val panicSource = intent?.getStringExtra("extra_panic_trigger")
+    if (!panicSource.isNullOrEmpty()) {
+      expo.modules.physicaltriggers.PhysicalTriggersModule.sendPanicEvent(panicSource)
+    }
   }
 
   /**
