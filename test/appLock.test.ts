@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
 import { resetMockSecureStore } from './mockExpo.mjs';
 import {
   setMockBiometricState,
@@ -73,7 +74,7 @@ test('1. Biometrics: Capability inspection and availability detection', async ()
 
 test('2. Biometrics: Successful verification unlocks vault and loads master key', async () => {
   // Set up PIN first
-  await setupPin('2468', 1000);
+  await setupPin('246810', 1000);
   assert.strictEqual(await isPinConfigured(), true);
 
   // Lock vault
@@ -91,7 +92,7 @@ test('2. Biometrics: Successful verification unlocks vault and loads master key'
 });
 
 test('3. Biometrics: Cancellation or failure provides seamless fallback to custom PIN', async () => {
-  await setupPin('5678', 1000);
+  await setupPin('567890', 1000);
   lockVault();
 
   // User chooses "Use PIN" (fallback) or cancels biometric prompt
@@ -107,7 +108,7 @@ test('3. Biometrics: Cancellation or failure provides seamless fallback to custo
   assert.strictEqual(isVaultLocked(), true, 'Vault must remain locked upon fallback');
 
   // Seamless fallback to custom PIN unlocks successfully
-  const pinSuccess = await appLockController.unlockWithPin('5678');
+  const pinSuccess = await appLockController.unlockWithPin('567890');
   assert.strictEqual(pinSuccess, true, 'Custom PIN unlock must succeed following biometric fallback');
   assert.strictEqual(isVaultLocked(), false, 'Vault must be unlocked after PIN validation');
 });
@@ -120,18 +121,18 @@ test('4. AppLockController: Engages lock on launch when PIN configured and stays
   appLockController.destroy();
 
   // Configured state
-  await setupPin('1234', 1000);
+  await setupPin('123456', 1000);
   await appLockController.init();
   assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'Configured app must lock out unauthorized access on open');
 });
 
 test('5. Lifecycle Gatekeeper: Immediate mode locks the exact second app is backgrounded', async () => {
-  await setupPin('9876', 1000);
+  await setupPin('987654', 1000);
   await appLockController.init();
   await appLockController.setLockTimeoutSeconds(0); // Immediate
 
   // Unlock with PIN
-  const unlocked = await appLockController.unlockWithPin('9876');
+  const unlocked = await appLockController.unlockWithPin('987654');
   assert.strictEqual(unlocked, true);
   assert.strictEqual(appLockController.getSnapshot().isLocked, false);
 
@@ -146,11 +147,11 @@ test('5. Lifecycle Gatekeeper: Immediate mode locks the exact second app is back
 });
 
 test('6. Lifecycle Gatekeeper: Configurable timeout (15s / 30s) allows quick app switching', async () => {
-  await setupPin('3344', 1000);
+  await setupPin('334455', 1000);
   await appLockController.init();
   await appLockController.setLockTimeoutSeconds(15); // 15 seconds window
 
-  await appLockController.unlockWithPin('3344');
+  await appLockController.unlockWithPin('334455');
   assert.strictEqual(appLockController.getSnapshot().isLocked, false);
 
   // User momentarily backgrounds app (e.g. 5 seconds)
@@ -170,11 +171,11 @@ test('6. Lifecycle Gatekeeper: Configurable timeout (15s / 30s) allows quick app
 });
 
 test('7. Lifecycle Gatekeeper: In-app inactivity idle timeout locks active session', async () => {
-  await setupPin('7788', 1000);
+  await setupPin('778899', 1000);
   await appLockController.init();
   await appLockController.setLockTimeoutSeconds(15);
 
-  await appLockController.unlockWithPin('7788');
+  await appLockController.unlockWithPin('778899');
   assert.strictEqual(appLockController.getSnapshot().isLocked, false);
 
   // User touches screen, resetting inactivity timer
@@ -233,11 +234,19 @@ public class MainActivity extends ReactActivity {
   // Verify biometric permissions in ERICA_PERMISSIONS
   assert.ok(ERICA_PERMISSIONS.includes('android.permission.USE_BIOMETRIC'), 'Must include USE_BIOMETRIC permission');
   assert.ok(ERICA_PERMISSIONS.includes('android.permission.USE_FINGERPRINT'), 'Must include USE_FINGERPRINT permission');
+
+  // Verify iOS Face ID permissions in app.json
+  const appJson = JSON.parse(fs.readFileSync('./app.json', 'utf8'));
+  assert.strictEqual(
+    appJson.expo?.ios?.infoPlist?.NSFaceIDUsageDescription,
+    'E.R.I.C.A. uses Face ID to securely unlock your emergency contacts and settings.',
+    'app.json must define NSFaceIDUsageDescription in ios.infoPlist'
+  );
 });
 
 test('9. CRITICAL THREAT-MODEL GUARD: Emergency Dispatch Bypass operates unimpeded while phone/app is locked', async () => {
   // Setup PIN and fully lock app and vault
-  await setupPin('9999', 1000);
+  await setupPin('999999', 1000);
   await appLockController.init();
   appLockController.lock();
 
@@ -304,8 +313,8 @@ test('9. CRITICAL THREAT-MODEL GUARD: Emergency Dispatch Bypass operates unimped
 });
 
 test('10. Anti-Coercion: Entering Duress PIN unlocks into Decoy Mode while keeping real vault locked', async () => {
-  await setupPin('1234', 1_000);
-  await setupDuressPin('9999', 1_000);
+  await setupPin('123456', 1_000);
+  await setupDuressPin('999999', 1_000);
   await appLockController.init();
 
   assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'App starts locked');
@@ -313,7 +322,7 @@ test('10. Anti-Coercion: Entering Duress PIN unlocks into Decoy Mode while keepi
   assert.strictEqual(appLockController.getSnapshot().isDuressPinConfigured, true);
 
   // 1. Enter Duress PIN
-  const unlockResult = await appLockController.unlockWithPin('9999');
+  const unlockResult = await appLockController.unlockWithPin('999999');
   assert.strictEqual(unlockResult, true, 'Duress PIN must report success so adversary is never alerted');
 
   const snapshot = appLockController.getSnapshot();
@@ -342,7 +351,7 @@ test('10. Anti-Coercion: Entering Duress PIN unlocks into Decoy Mode while keepi
 
   // 4. Entering primary PIN unlocks full genuine vault
   (AppState as any)._setAppState('active');
-  const primaryUnlock = await appLockController.unlockWithPin('1234');
+  const primaryUnlock = await appLockController.unlockWithPin('123456');
   assert.strictEqual(primaryUnlock, true);
   assert.strictEqual(appLockController.getSnapshot().isLocked, false);
   assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
@@ -353,8 +362,8 @@ test('10. Anti-Coercion: Entering Duress PIN unlocks into Decoy Mode while keepi
 });
 
 test('11. Anti-Coercion: Duress Silent SOS optionally dispatches in background when enabled in settings', async () => {
-  await setupPin('1234', 1_000);
-  await setupDuressPin('9999', 1_000);
+  await setupPin('123456', 1_000);
+  await setupDuressPin('999999', 1_000);
   await appLockController.init();
 
   let dispatchedCount = 0;
@@ -383,7 +392,7 @@ test('11. Anti-Coercion: Duress Silent SOS optionally dispatches in background w
   try {
     // Case A: duressSilentSosEnabled = false (Default)
     await saveSettings({ ...DEFAULT_SETTINGS, duressSilentSosEnabled: false });
-    await appLockController.unlockWithPin('9999');
+    await appLockController.unlockWithPin('999999');
     await new Promise((r) => setTimeout(r, 60));
     assert.strictEqual(dispatchedCount, 0, 'No SOS dispatched when setting is disabled');
 
@@ -395,7 +404,7 @@ test('11. Anti-Coercion: Duress Silent SOS optionally dispatches in background w
     const { saveContacts } = await import('../src/features/contacts/contactsStorage');
     await saveContacts([{ id: 'c1', name: 'Safe Contact', phoneNumber: '+12345550000' }]);
 
-    const unlocked = await appLockController.unlockWithPin('9999');
+    const unlocked = await appLockController.unlockWithPin('999999');
     assert.strictEqual(unlocked, true);
     assert.strictEqual(appLockController.getSnapshot().isDuressMode, true);
 

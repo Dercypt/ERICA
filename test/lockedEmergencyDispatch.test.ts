@@ -13,6 +13,8 @@ import {
   appLockController,
   saveSecureItem,
   getSecureItem,
+  authenticatePin,
+  isPinLockedOut,
 } from '../src/features/security';
 import {
   saveContacts,
@@ -75,7 +77,7 @@ test.beforeEach(async () => {
 
 test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger fires while app UI is locked, completing background dispatch without PIN intervention', async () => {
   // 1. Setup primary PIN and trusted contacts
-  await setupPin('5137', 1000);
+  await setupPin('513792', 1000);
   const trustedContacts: Contact[] = [
     { id: 'contact_1', name: 'Guardian Alice', phoneNumber: '+15559876543' },
     { id: 'contact_2', name: 'Responder Bob', phoneNumber: '+15551234567' },
@@ -166,7 +168,7 @@ test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger
     assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'UI remains locked after stand down');
 
     // 11. Legitimate user finally enters PIN to inspect history
-    const unlocked = await appLockController.unlockWithPin('5137');
+    const unlocked = await appLockController.unlockWithPin('513792');
     assert.strictEqual(unlocked, true, 'Legitimate user PIN must unlock UI');
     assert.strictEqual(appLockController.getSnapshot().isLocked, false);
     assert.strictEqual(isVaultLocked(), false);
@@ -183,7 +185,7 @@ test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger
 });
 
 test('Task 3.2: Shake Sensor Panic Trigger while Locked: High-pass jerk trigger dispatches in background with zero leaks', async () => {
-  await setupPin('9922', 1000);
+  await setupPin('992211', 1000);
   await saveContacts([{ id: 'c1', name: 'Emergency Contact', phoneNumber: '+18005550199' }]);
 
   await appLockController.init();
@@ -252,7 +254,7 @@ test('Task 3.2: Shake Sensor Panic Trigger while Locked: High-pass jerk trigger 
 });
 
 test('Task 3.3: Adversary Interruption Resistance: Entering invalid PINs during emergency countdown or dispatch does NOT cancel or leak dispatch', async () => {
-  await setupPin('3333', 1000);
+  await setupPin('333333', 1000);
   await saveContacts([{ id: 'c1', name: 'Trusted Guardian', phoneNumber: '+15557778888' }]);
 
   await appLockController.init();
@@ -289,7 +291,7 @@ test('Task 3.3: Adversary Interruption Resistance: Entering invalid PINs during 
     assert.strictEqual(sosService.getSnapshot().value, 'countdown');
 
     // Adversary attempts to guess PIN on lock screen to abort/compromise app
-    const adversaryAttempts = ['0000', '1234', '9999'];
+    const adversaryAttempts = ['000000', '123456', '999999'];
     for (const guess of adversaryAttempts) {
       const res = await appLockController.unlockWithPin(guess);
       assert.strictEqual(res, false, 'Adversary guess must be rejected');
@@ -313,6 +315,81 @@ test('Task 3.3: Adversary Interruption Resistance: Entering invalid PINs during 
     assert.strictEqual(isVaultLocked(), true);
     assert.strictEqual(isMasterKeyLoaded(), false);
 
+    sosService.send({ type: 'MARK_SAFE' });
+    await new Promise((r) => setTimeout(r, 60));
+  } finally {
+    cleanupPhysical();
+    cleanupDispatch();
+  }
+});
+
+test('Task 3.4: Hardware Panic Triggers bypass active PIN lockouts completely and dispatch in background', async () => {
+  // 1. Setup primary PIN and contacts
+  await setupPin('887766', 1000);
+  await saveContacts([{ id: 'c1', name: 'Emergency Guardian', phoneNumber: '+14155559999' }]);
+
+  await appLockController.init();
+  appLockController.lock();
+
+  // 2. Trigger consecutive failed attempts to enter active PIN lockout
+  for (let i = 0; i < 5; i++) {
+    await authenticatePin('000000');
+  }
+  assert.strictEqual(await isPinLockedOut(), true, 'Device must be locked out after 5 failed attempts');
+
+  // Verify PIN entry is blocked
+  const res = await appLockController.unlockWithPin('887766');
+  assert.strictEqual(res, false, 'PIN entry is locked out');
+
+  // 3. Setup dispatch engine and physical trigger bridge
+  let sentRecipients: string[] = [];
+  let sentPayload = '';
+  const mockDb = new MockSQLiteDatabase();
+
+  configureDispatchEngineOverrides({
+    silentSmsSender: async (recipients, msg) => {
+      sentRecipients = recipients;
+      sentPayload = msg;
+      return true;
+    },
+    availabilityChecker: async () => true,
+  });
+
+  const cleanupDispatch = await initDispatchEngine({
+    customDb: mockDb,
+    silentSmsSender: async (recipients, msg) => {
+      sentRecipients = recipients;
+      sentPayload = msg;
+      return true;
+    },
+    availabilityChecker: async () => true,
+  });
+
+  const cleanupPhysical = setupPhysicalPanicBridge();
+
+  try {
+    const sosService = getSosService();
+    sosService.send({ type: 'SETTINGS_UPDATED', countdownSeconds: 1 });
+
+    // 4. User triggers hardware panic (Volume Button Pattern) while device is in PIN lockout
+    notifyPanicTrigger('Volume Button Pattern');
+
+    // Emergency countdown engages despite PIN lockout
+    assert.strictEqual(sosService.getSnapshot().value, 'countdown', 'Emergency countdown must engage despite PIN lockout');
+    assert.strictEqual(appLockController.getSnapshot().isLocked, true);
+    assert.strictEqual(isVaultLocked(), true);
+
+    // Countdown advances to dispatch
+    sosService.send({ type: 'TICK' });
+    await new Promise((r) => setTimeout(r, 120));
+
+    // Emergency dispatch succeeds in background without requiring PIN
+    assert.strictEqual(sosService.getSnapshot().value, 'active', 'Emergency dispatch must succeed in background during lockout');
+    assert.strictEqual(sentRecipients.length, 1);
+    assert.strictEqual(sentRecipients[0], '+14155559999');
+    assert.ok(sentPayload.includes('Triggered via: Volume Button Pattern'));
+
+    // Stand down
     sosService.send({ type: 'MARK_SAFE' });
     await new Promise((r) => setTimeout(r, 60));
   } finally {

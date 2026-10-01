@@ -15,6 +15,8 @@ import {
   lockVault,
   unlockWithPin as securityUnlockWithPin,
   authenticatePin,
+  isDuressModeActive,
+  setDuressModeActive,
 } from './pinAuth';
 import {
   unlockWithBiometrics as securityUnlockWithBiometrics,
@@ -39,6 +41,7 @@ export class AppLockController {
   private isPinConfigured: boolean = false;
   private isDuressPinConfigured: boolean = false;
   private isBiometricsAvailable: boolean = false;
+  private biometricsEnabled: boolean = true;
   private lockTimeoutSeconds: number = 0; // Default 0: Immediate lock
   private lastBackgroundedAt: number | null = null;
   private idleTimer: any = null;
@@ -60,12 +63,17 @@ export class AppLockController {
   }
 
   private updateSnapshot(): void {
+    const biometricsAllowed =
+      this.isBiometricsAvailable &&
+      this.biometricsEnabled &&
+      !this.isDuressMode;
+
     this.snapshot = {
       isLocked: this.isLocked,
       isPinConfigured: this.isPinConfigured,
       isDuressPinConfigured: this.isDuressPinConfigured,
       isDuressMode: this.isDuressMode,
-      isBiometricsAvailable: this.isBiometricsAvailable,
+      isBiometricsAvailable: biometricsAllowed,
       lockTimeoutSeconds: this.lockTimeoutSeconds,
     };
   }
@@ -84,8 +92,10 @@ export class AppLockController {
     this.isDuressPinConfigured = await isDuressPinConfigured();
     this.isBiometricsAvailable = await isBiometricsAvailable();
     this.isDuressMode = false;
+    setDuressModeActive(false);
 
     const settings = await getSettings();
+    this.biometricsEnabled = settings.biometricsEnabled !== false;
     this.lockTimeoutSeconds = settings.appLockTimeoutSeconds ?? 0;
 
     // Lock out unauthorized access the second the app is opened
@@ -182,6 +192,7 @@ export class AppLockController {
     }
     this.isLocked = true;
     this.isDuressMode = false;
+    setDuressModeActive(false);
     lockVault();
     this.clearIdleTimer();
     this.notify();
@@ -198,6 +209,7 @@ export class AppLockController {
       if (success) {
         this.isLocked = false;
         this.isDuressMode = false;
+        setDuressModeActive(false);
         this.resetIdleTimer();
         this.notify();
         return true;
@@ -211,6 +223,7 @@ export class AppLockController {
       lockVault();
       this.isLocked = false;
       this.isDuressMode = true;
+      setDuressModeActive(true);
       this.resetIdleTimer();
       this.notify();
 
@@ -234,10 +247,21 @@ export class AppLockController {
   public async unlockWithBiometrics(
     promptMessage?: string
   ): Promise<BiometricAuthResult> {
+    // Coercion Guard: Biometrics are strictly shut off when Duress Mode is active
+    if (this.isDuressMode || isDuressModeActive()) {
+      return { success: false, error: 'DURESS_ACTIVE' };
+    }
+
+    const settings = await getSettings();
+    if (settings.biometricsEnabled === false) {
+      return { success: false, error: 'BIOMETRICS_DISABLED' };
+    }
+
     const result = await securityUnlockWithBiometrics({ promptMessage });
     if (result.success) {
       this.isLocked = false;
       this.isDuressMode = false;
+      setDuressModeActive(false);
       this.resetIdleTimer();
       this.notify();
     }
@@ -268,10 +292,12 @@ export class AppLockController {
     this.isDuressPinConfigured = await isDuressPinConfigured();
     this.isBiometricsAvailable = await isBiometricsAvailable();
     const settings = await getSettings();
+    this.biometricsEnabled = settings.biometricsEnabled !== false;
     this.lockTimeoutSeconds = settings.appLockTimeoutSeconds ?? 0;
     if (!this.isPinConfigured) {
       this.isLocked = false;
       this.isDuressMode = false;
+      setDuressModeActive(false);
     }
     this.notify();
   }
@@ -310,6 +336,7 @@ export class AppLockController {
     this.initialized = false;
     this.isDuressMode = false;
     this.isDuressPinConfigured = false;
+    setDuressModeActive(false);
   }
 }
 

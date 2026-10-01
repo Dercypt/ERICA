@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Switch } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Switch, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from './settingsStorage';
@@ -189,8 +189,8 @@ export function SettingsScreen() {
   );
 
   const handleSetupPin = async () => {
-    if (pinInput.length < 4) {
-      setPinMessage({ text: 'PIN must be at least 4 digits', error: true });
+    if (pinInput.length < 6) {
+      setPinMessage({ text: 'PIN must be at least 6 digits', error: true });
       return;
     }
     if (pinInput !== pinConfirmInput) {
@@ -210,8 +210,8 @@ export function SettingsScreen() {
   };
 
   const handleChangePin = async () => {
-    if (pinInput.length < 4) {
-      setPinMessage({ text: 'New PIN must be at least 4 digits', error: true });
+    if (pinInput.length < 6) {
+      setPinMessage({ text: 'New PIN must be at least 6 digits', error: true });
       return;
     }
     if (pinInput !== pinConfirmInput) {
@@ -239,8 +239,8 @@ export function SettingsScreen() {
   };
 
   const handleSetupDuressPin = async () => {
-    if (duressPinInput.length < 4) {
-      setDuressPinMessage({ text: 'Duress PIN must be at least 4 digits', error: true });
+    if (duressPinInput.length < 6) {
+      setDuressPinMessage({ text: 'Duress PIN must be at least 6 digits', error: true });
       return;
     }
     if (duressPinInput !== duressPinConfirmInput) {
@@ -250,9 +250,11 @@ export function SettingsScreen() {
     try {
       await setupDuressPin(duressPinInput);
       setDuressPinConfigured(true);
+      setBiometricsEnabled(false);
+      setSettings((s) => ({ ...s, biometricsEnabled: false }));
       setDuressPinInput('');
       setDuressPinConfirmInput('');
-      setDuressPinMessage({ text: 'Duress PIN successfully configured!', error: false });
+      setDuressPinMessage({ text: 'Duress PIN successfully configured! Biometrics disabled by default (Coercion Guard).', error: false });
       await refreshLockState();
     } catch (err) {
       setDuressPinMessage({
@@ -263,8 +265,8 @@ export function SettingsScreen() {
   };
 
   const handleChangeDuressPin = async () => {
-    if (duressPinInput.length < 4) {
-      setDuressPinMessage({ text: 'New Duress PIN must be at least 4 digits', error: true });
+    if (duressPinInput.length < 6) {
+      setDuressPinMessage({ text: 'New Duress PIN must be at least 6 digits', error: true });
       return;
     }
     if (duressPinInput !== duressPinConfirmInput) {
@@ -304,6 +306,41 @@ export function SettingsScreen() {
     } catch {
       setDuressPinMessage({ text: 'Failed to remove Duress PIN', error: true });
     }
+  };
+
+  const handleBiometricsToggle = (val: boolean) => {
+    if (val && duressPinConfigured) {
+      Alert.alert(
+        'Security Warning',
+        'Enabling biometrics allows an adversary to force unlock your real contacts using your face or finger, bypassing Duress Mode.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {
+              setBiometricsEnabled(false);
+            },
+          },
+          {
+            text: 'Enable Anyway',
+            style: 'destructive',
+            onPress: async () => {
+              setBiometricsEnabled(true);
+              const updated = { ...settings, biometricsEnabled: true };
+              setSettings(updated);
+              await saveSettings(updated);
+              await refreshLockState();
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setBiometricsEnabled(val);
+    const updated = { ...settings, biometricsEnabled: val };
+    setSettings(updated);
+    saveSettings(updated);
+    refreshLockState();
   };
 
   // Listen for shake sensitivity test samples
@@ -562,10 +599,10 @@ export function SettingsScreen() {
 
             {!pinConfigured ? (
               <View style={styles.pinForm}>
-                <Text style={styles.label}>Set 4-8 Digit Custom PIN</Text>
+                <Text style={styles.label}>Set 6-8 Digit Custom PIN</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="New PIN (min 4 digits)"
+                  placeholder="New PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -599,7 +636,7 @@ export function SettingsScreen() {
                 />
                 <TextInput
                   style={[styles.input, { marginTop: 8 }]}
-                  placeholder="New PIN (min 4 digits)"
+                  placeholder="New PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -662,14 +699,18 @@ export function SettingsScreen() {
               </View>
               <Switch
                 value={biometricsEnabled}
-                onValueChange={(val) => {
-                  setBiometricsEnabled(val);
-                  setSettings((s) => ({ ...s, biometricsEnabled: val }));
-                }}
+                onValueChange={handleBiometricsToggle}
                 trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
                 thumbColor="#FFFFFF"
               />
             </View>
+            {duressPinConfigured && biometricsEnabled ? (
+              <View style={styles.coercionWarningBox}>
+                <Text style={styles.coercionWarningText}>
+                  ⚠️ Warning: Enabling biometrics allows an adversary to force unlock your real contacts using your face or finger, bypassing Duress Mode.
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* Lock Timeout Selection */}
@@ -740,10 +781,10 @@ export function SettingsScreen() {
               </Text>
             ) : !duressPinConfigured ? (
               <View style={styles.pinForm}>
-                <Text style={styles.label}>Set 4-8 Digit Duress PIN</Text>
+                <Text style={styles.label}>Set 6-8 Digit Duress PIN</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="New Duress PIN (min 4 digits)"
+                  placeholder="New Duress PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -777,7 +818,7 @@ export function SettingsScreen() {
                 />
                 <TextInput
                   style={[styles.input, { marginTop: 8 }]}
-                  placeholder="New Duress PIN (min 4 digits)"
+                  placeholder="New Duress PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -1253,6 +1294,20 @@ const styles = StyleSheet.create({
   },
   timeoutOptionText: { color: '#8E8E93', fontSize: 12, fontWeight: '600' },
   timeoutOptionTextActive: { color: 'white', fontWeight: '700' },
+  coercionWarningBox: {
+    backgroundColor: '#3A1014',
+    borderColor: '#D7263D',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+  },
+  coercionWarningText: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
   saveButton: {
     backgroundColor: '#D7263D',
     borderRadius: 8,

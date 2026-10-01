@@ -10,6 +10,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAppLock } from './useAppLock';
 import { useSosService } from '../sos/sosMachine';
+import { getLockoutRemainingSeconds } from './pinAuth';
+
+function formatLockout(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds} second${seconds === 1 ? '' : 's'}`;
+  }
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (secs === 0) {
+    return `${mins} minute${mins === 1 ? '' : 's'}`;
+  }
+  return `${mins}m ${secs}s`;
+}
 
 export function LockScreen() {
   const { unlockWithPin, unlockWithBiometrics, isBiometricsAvailable } = useAppLock();
@@ -18,6 +31,37 @@ export function LockScreen() {
   const [pin, setPin] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [lockoutRemaining, setLockoutRemaining] = useState(0);
+
+  // Periodically check and count down lockout remaining time
+  useEffect(() => {
+    let active = true;
+    const checkLockout = async () => {
+      const remaining = await getLockoutRemainingSeconds();
+      if (!active) return;
+      setLockoutRemaining(remaining);
+      if (remaining > 0) {
+        setErrorMessage(`Too many failed attempts. Try again in ${formatLockout(remaining)}.`);
+      }
+    };
+    checkLockout();
+
+    const timer = setInterval(async () => {
+      const remaining = await getLockoutRemainingSeconds();
+      if (!active) return;
+      setLockoutRemaining(remaining);
+      if (remaining > 0) {
+        setErrorMessage(`Too many failed attempts. Try again in ${formatLockout(remaining)}.`);
+      } else {
+        setErrorMessage((prev) => (prev.includes('Too many failed attempts') ? '' : prev));
+      }
+    }, 1000);
+
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   // Attempt seamless biometric prompt automatically upon screen appearance
   const attemptBiometrics = useCallback(async () => {
@@ -42,8 +86,8 @@ export function LockScreen() {
   }, [attemptBiometrics]);
 
   const handlePinSubmit = async () => {
-    if (!pin || pin.length < 4) {
-      setErrorMessage('PIN must be at least 4 digits');
+    if (!pin || pin.length < 6) {
+      setErrorMessage('PIN must be at least 6 digits');
       return;
     }
 
@@ -53,8 +97,18 @@ export function LockScreen() {
     try {
       const success = await unlockWithPin(pin);
       if (!success) {
-        setErrorMessage('Incorrect PIN. Please try again.');
+        const remaining = await getLockoutRemainingSeconds();
+        if (remaining > 0) {
+          setLockoutRemaining(remaining);
+          setErrorMessage(`Too many failed attempts. Try again in ${formatLockout(remaining)}.`);
+        } else {
+          setErrorMessage('Incorrect PIN. Please try again.');
+        }
         setPin('');
+      } else {
+        setPin('');
+        setErrorMessage('');
+        setLockoutRemaining(0);
       }
     } catch (err) {
       setErrorMessage('Unlock failed. Please try again.');

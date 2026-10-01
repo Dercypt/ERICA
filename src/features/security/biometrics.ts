@@ -6,7 +6,7 @@
   */
 
 import * as LocalAuthentication from 'expo-local-authentication';
-import { isPinConfigured, unlockVaultWithMasterKey } from './pinAuth';
+import { isPinConfigured, unlockVaultWithMasterKey, isDuressModeActive } from './pinAuth';
 import { getSettings } from '../settings/settingsStorage';
 
 export interface BiometricCapabilities {
@@ -86,6 +86,11 @@ export async function authenticateWithBiometrics(options?: {
   cancelLabel?: string;
   fallbackLabel?: string;
 }): Promise<BiometricAuthResult> {
+  // Coercion Guard: Enforce automatic biometric shutoff when Duress Mode is active
+  if (isDuressModeActive()) {
+    return { success: false, error: 'DURESS_ACTIVE' };
+  }
+
   const pinConfigured = await isPinConfigured();
   if (!pinConfigured) {
     return { success: false, error: 'NO_PIN_CONFIGURED' };
