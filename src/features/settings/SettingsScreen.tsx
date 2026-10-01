@@ -27,6 +27,10 @@ import {
   VolumePatternEngine,
   ShakeDetectorEngine,
 } from '../../../modules/physical-triggers';
+import {
+  startDeterrence,
+  stopDeterrence,
+} from '../../../modules/deterrence-evidence';
 
 interface SliderProps {
   label: string;
@@ -150,6 +154,17 @@ export function SettingsScreen() {
     })
   );
 
+  // Phase 4 Deterrence & Evidence state
+  const [sirenEnabled, setSirenEnabled] = useState(false);
+  const [strobeEnabled, setStrobeEnabled] = useState(false);
+  const [respectSilentMode, setRespectSilentMode] = useState(true);
+  const [isDeterrenceTesting, setIsDeterrenceTesting] = useState(false);
+  const [deterrenceTestFeedback, setDeterrenceTestFeedback] = useState<string | null>(null);
+
+  const [audioConsentEnabled, setAudioConsentEnabled] = useState(false);
+  const [photoConsentEnabled, setPhotoConsentEnabled] = useState(false);
+  const [dualCameraEnabled, setDualCameraEnabled] = useState(true);
+
   useFocusEffect(
     useCallback(() => {
       getSettings().then((s) => {
@@ -167,6 +182,12 @@ export function SettingsScreen() {
         setLockTimeout(s.appLockTimeoutSeconds ?? 0);
         setDuressSilentSosEnabled(Boolean(s.duressSilentSosEnabled));
         setDecoyContactsType(s.decoyContactsType ?? 'mock');
+        setSirenEnabled(Boolean(s.deterrenceSirenEnabled));
+        setStrobeEnabled(Boolean(s.deterrenceStrobeEnabled));
+        setRespectSilentMode(s.respectSilentMode ?? true);
+        setAudioConsentEnabled(Boolean(s.evidenceAudioConsentEnabled));
+        setPhotoConsentEnabled(Boolean(s.evidencePhotoConsentEnabled));
+        setDualCameraEnabled(s.evidenceDualCamera ?? true);
 
         volumeEngineRef.current.configure({
           enabled: true,
@@ -485,6 +506,12 @@ export function SettingsScreen() {
       biometricsEnabled,
       duressSilentSosEnabled,
       decoyContactsType,
+      deterrenceSirenEnabled: sirenEnabled,
+      deterrenceStrobeEnabled: strobeEnabled,
+      respectSilentMode,
+      evidenceAudioConsentEnabled: audioConsentEnabled,
+      evidencePhotoConsentEnabled: photoConsentEnabled,
+      evidenceDualCamera: dualCameraEnabled,
     };
 
     await saveSettings(toSave);
@@ -507,6 +534,101 @@ export function SettingsScreen() {
     setRetryCeilingText(String(finalRetryCeiling));
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  };
+
+  const handleTestDeterrence = async () => {
+    if (isDeterrenceTesting) {
+      await stopDeterrence().catch(() => {});
+      setIsDeterrenceTesting(false);
+      setDeterrenceTestFeedback('Test stopped.');
+      setTimeout(() => setDeterrenceTestFeedback(null), 2500);
+      return;
+    }
+
+    if (!sirenEnabled && !strobeEnabled) {
+      setDeterrenceTestFeedback('Enable Siren or Strobe first to test.');
+      setTimeout(() => setDeterrenceTestFeedback(null), 3000);
+      return;
+    }
+
+    setIsDeterrenceTesting(true);
+    setDeterrenceTestFeedback('Testing deterrence for 3s (no emergency dispatch)...');
+    try {
+      const status = await startDeterrence({
+        sirenEnabled,
+        strobeEnabled,
+        respectSilentMode,
+      });
+
+      if (status.suppressedBySilentMode) {
+        setDeterrenceTestFeedback('Siren suppressed (device in silent/vibrate mode). Strobe active.');
+      }
+
+      setTimeout(async () => {
+        await stopDeterrence().catch(() => {});
+        setIsDeterrenceTesting(false);
+        setDeterrenceTestFeedback('✓ Deterrence test completed cleanly (stopped).');
+        setTimeout(() => setDeterrenceTestFeedback(null), 3000);
+      }, 3000);
+    } catch {
+      setIsDeterrenceTesting(false);
+      setDeterrenceTestFeedback('Deterrence test failed.');
+      setTimeout(() => setDeterrenceTestFeedback(null), 3000);
+    }
+  };
+
+  const handleAudioConsentToggle = (val: boolean) => {
+    if (val) {
+      Alert.alert(
+        'Informed Audio Consent',
+        'Enable ambient audio recording during emergencies? Ambient audio is recorded off the main thread and strictly encrypted at rest with AES-256-GCM using your hardware master key.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setAudioConsentEnabled(false),
+          },
+          {
+            text: 'I Consent',
+            style: 'default',
+            onPress: () => {
+              setAudioConsentEnabled(true);
+              setSettings((s) => ({ ...s, evidenceAudioConsentEnabled: true }));
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setAudioConsentEnabled(false);
+    setSettings((s) => ({ ...s, evidenceAudioConsentEnabled: false }));
+  };
+
+  const handlePhotoConsentToggle = (val: boolean) => {
+    if (val) {
+      Alert.alert(
+        'Informed Photo Consent',
+        'Enable camera photo capture during emergencies? Photos from front and rear cameras will be captured off the main thread and encrypted at rest with AES-256-GCM.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => setPhotoConsentEnabled(false),
+          },
+          {
+            text: 'I Consent',
+            style: 'default',
+            onPress: () => {
+              setPhotoConsentEnabled(true);
+              setSettings((s) => ({ ...s, evidencePhotoConsentEnabled: true }));
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setPhotoConsentEnabled(false);
+    setSettings((s) => ({ ...s, evidencePhotoConsentEnabled: false }));
   };
 
   const jerkProgressPercent = Math.min(100, Math.round((currentJerk / Math.max(1, shakeThreshold * 1.5)) * 100));
@@ -1110,6 +1232,156 @@ export function SettingsScreen() {
                 </View>
               )}
             </View>
+          </View>
+        </View>
+
+        {/* Section: Deterrence & Emergency Alarms (Phase 4) */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionHeader}>Deterrence & Emergency Alarms</Text>
+          <Text style={styles.helperText}>
+            Acoustic and visual deterrence activated during active emergency alerts. All deterrence routines run off the main thread.
+          </Text>
+
+          {/* Siren Switch */}
+          <View style={styles.subSection}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Acoustic Alarm Siren</Text>
+                <Text style={styles.triggerSubtitle}>
+                  Dual-tone oscillating emergency siren sound to deter assailants and attract bystander attention.
+                </Text>
+              </View>
+              <Switch
+                value={sirenEnabled}
+                onValueChange={(val) => {
+                  setSirenEnabled(val);
+                  setSettings((s) => ({ ...s, deterrenceSirenEnabled: val }));
+                }}
+                trackColor={{ false: '#3A3A3C', true: '#D7263D' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {/* Strobe Switch */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Camera Flash Strobe</Text>
+                <Text style={styles.triggerSubtitle}>
+                  High-frequency pulsating camera LED flash for visual disorientation and nighttime deterrence.
+                </Text>
+              </View>
+              <Switch
+                value={strobeEnabled}
+                onValueChange={(val) => {
+                  setStrobeEnabled(val);
+                  setSettings((s) => ({ ...s, deterrenceStrobeEnabled: val }));
+                }}
+                trackColor={{ false: '#3A3A3C', true: '#D7263D' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {/* Respect Silent Mode Switch */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Respect Silent / Vibrate Mode</Text>
+                <Text style={styles.triggerSubtitle}>
+                  When enabled, suppresses the audible siren if device ringer is set to silent or vibrate (preserves stealth).
+                </Text>
+              </View>
+              <Switch
+                value={respectSilentMode}
+                onValueChange={(val) => {
+                  setRespectSilentMode(val);
+                  setSettings((s) => ({ ...s, respectSilentMode: val }));
+                }}
+                trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {/* Deterrence Test Box */}
+            <View style={styles.testBox}>
+              <Text style={styles.testBoxTitle}>Deterrence Test Fire</Text>
+              <Text style={styles.testBoxSubtitle}>
+                Safely test configured siren tone and camera strobe for 3 seconds. No emergency alert will be dispatched to contacts.
+              </Text>
+              <Pressable
+                style={[styles.testActionButton, isDeterrenceTesting && styles.testActionActive, { alignSelf: 'flex-start', marginTop: 4 }]}
+                onPress={handleTestDeterrence}
+              >
+                <Text style={styles.testActionButtonText}>
+                  {isDeterrenceTesting ? 'Stop Deterrence Test' : 'Test Siren & Strobe (3s)'}
+                </Text>
+              </Pressable>
+              {deterrenceTestFeedback ? (
+                <Text style={[styles.helperText, { marginTop: 8, color: '#FF9F43' }]}>
+                  {deterrenceTestFeedback}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        </View>
+
+        {/* Section: Evidence Capture & Informed Consent (Phase 4) */}
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionHeader}>Evidence Capture & Informed Consent</Text>
+          <Text style={styles.helperText}>
+            Strict Privacy Guarantee: Evidence capture is consent-gated. All captured audio and photos are encrypted at rest with AES-256-GCM using your hardware master key.
+          </Text>
+
+          {/* Audio Consent Switch */}
+          <View style={styles.subSection}>
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Consent-Gated Audio Recording</Text>
+                <Text style={styles.triggerSubtitle}>
+                  Record ambient audio during active emergency. Finalized and encrypted upon stand down.
+                </Text>
+              </View>
+              <Switch
+                value={audioConsentEnabled}
+                onValueChange={handleAudioConsentToggle}
+                trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {/* Photo Consent Switch */}
+            <View style={styles.switchRow}>
+              <View style={styles.switchLabelContainer}>
+                <Text style={styles.triggerTitle}>Consent-Gated Photo Capture</Text>
+                <Text style={styles.triggerSubtitle}>
+                  Capture situational photos off the main thread during emergency dispatch.
+                </Text>
+              </View>
+              <Switch
+                value={photoConsentEnabled}
+                onValueChange={handlePhotoConsentToggle}
+                trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
+                thumbColor="#FFFFFF"
+              />
+            </View>
+
+            {photoConsentEnabled ? (
+              <View style={styles.switchRow}>
+                <View style={styles.switchLabelContainer}>
+                  <Text style={styles.triggerTitle}>Dual Camera Capture</Text>
+                  <Text style={styles.triggerSubtitle}>
+                    Capture from both front (self) and rear (environment) camera lenses.
+                  </Text>
+                </View>
+                <Switch
+                  value={dualCameraEnabled}
+                  onValueChange={(val) => {
+                    setDualCameraEnabled(val);
+                    setSettings((s) => ({ ...s, evidenceDualCamera: val }));
+                  }}
+                  trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+            ) : null}
           </View>
         </View>
 
