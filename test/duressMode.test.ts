@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
 import { resetMockSecureStore } from './mockExpo.mjs';
-import { resetMockLocalAuthentication } from './mockLocalAuthentication.mjs';
+import {
+  setMockBiometricState,
+  resetMockLocalAuthentication,
+} from './mockLocalAuthentication.mjs';
 import { AppState } from './mockReactNative.mjs';
 import { MockSQLiteDatabase } from './mockDatabase';
 import {
@@ -18,6 +22,9 @@ import {
   getActiveMasterKey,
   appLockController,
   authenticatePin,
+  authenticateWithBiometrics,
+  unlockWithBiometrics,
+  isDuressModeActive,
 } from '../src/features/security';
 import {
   getContacts,
@@ -230,3 +237,84 @@ test('4. Duress PIN Collision Invariants & Lifecycle', async () => {
   assert.strictEqual(await isDuressPinConfigured(), false);
   assert.strictEqual(await isPinConfigured(), true);
 });
+
+test('5. Coercion Guard: Setting Duress PIN automatically disables biometrics by default in settings', async () => {
+  // Initially biometrics are enabled
+  await saveSettings({
+    ...DEFAULT_SETTINGS,
+    biometricsEnabled: true,
+  });
+  let settings = await getSettings();
+  assert.strictEqual(settings.biometricsEnabled, true);
+
+  await setupPin('123456', 1_000);
+
+  // As soon as a Duress PIN is set, biometrics are automatically disabled by default
+  await setupDuressPin('654321', 1_000);
+
+  settings = await getSettings();
+  assert.strictEqual(
+    settings.biometricsEnabled,
+    false,
+    'Setting a Duress PIN must automatically disable biometrics by default (Coercion Guard)'
+  );
+
+  // Verify that SettingsScreen enforces active security warning string
+  const settingsScreenCode = fs.readFileSync('./src/features/settings/SettingsScreen.tsx', 'utf8');
+  const requiredWarning =
+    'Enabling biometrics allows an adversary to force unlock your real contacts using your face or finger, bypassing Duress Mode.';
+  assert.ok(
+    settingsScreenCode.includes(requiredWarning),
+    'SettingsScreen must display active security warning when toggling biometrics with Duress PIN'
+  );
+});
+
+test('6. Coercion Guard: Automatic biometric shutoff when Duress Mode is active prevents forced unlock', async () => {
+  await setupPin('112233', 1_000);
+  await setupDuressPin('445566', 1_000);
+
+  // User explicitly opted in to biometrics despite warning
+  await saveSettings({
+    ...DEFAULT_SETTINGS,
+    biometricsEnabled: true,
+  });
+
+  setMockBiometricState({
+    hardware: true,
+    enrolled: true,
+    result: { success: true },
+  });
+
+  await appLockController.init();
+  assert.strictEqual(appLockController.getSnapshot().isLocked, true);
+  assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
+
+  // Victim is coerced and unlocks into Duress Mode with Duress PIN
+  const duressUnlock = await appLockController.unlockWithPin('445566');
+  assert.strictEqual(duressUnlock, true);
+  assert.strictEqual(appLockController.getSnapshot().isDuressMode, true);
+  assert.strictEqual(isDuressModeActive(), true);
+
+  // Coercion Threat Model:
+  // Adversary tries to force victim to unlock with Face ID / Fingerprint while in Duress Mode
+  // Biometrics must be AUTOMATICALLY SHUT OFF:
+  const directBiometricResult = await authenticateWithBiometrics();
+  assert.strictEqual(directBiometricResult.success, false);
+  assert.strictEqual(directBiometricResult.error, 'DURESS_ACTIVE');
+
+  const controllerBiometricResult = await appLockController.unlockWithBiometrics();
+  assert.strictEqual(controllerBiometricResult.success, false);
+  assert.strictEqual(controllerBiometricResult.error, 'DURESS_ACTIVE');
+
+  // Snapshot indicates biometrics unavailable during duress mode
+  assert.strictEqual(
+    appLockController.getSnapshot().isBiometricsAvailable,
+    false,
+    'Biometrics must be unavailable in AppLock snapshot while Duress Mode is active'
+  );
+
+  // Real vault remains strictly locked
+  assert.strictEqual(isVaultLocked(), true, 'Real vault must remain strictly locked');
+  assert.strictEqual(isMasterKeyLoaded(), false, 'Master key must remain purged');
+});
+

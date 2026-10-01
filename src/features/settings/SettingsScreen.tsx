@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Switch } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Switch, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from './settingsStorage';
@@ -250,9 +250,11 @@ export function SettingsScreen() {
     try {
       await setupDuressPin(duressPinInput);
       setDuressPinConfigured(true);
+      setBiometricsEnabled(false);
+      setSettings((s) => ({ ...s, biometricsEnabled: false }));
       setDuressPinInput('');
       setDuressPinConfirmInput('');
-      setDuressPinMessage({ text: 'Duress PIN successfully configured!', error: false });
+      setDuressPinMessage({ text: 'Duress PIN successfully configured! Biometrics disabled by default (Coercion Guard).', error: false });
       await refreshLockState();
     } catch (err) {
       setDuressPinMessage({
@@ -304,6 +306,41 @@ export function SettingsScreen() {
     } catch {
       setDuressPinMessage({ text: 'Failed to remove Duress PIN', error: true });
     }
+  };
+
+  const handleBiometricsToggle = (val: boolean) => {
+    if (val && duressPinConfigured) {
+      Alert.alert(
+        'Security Warning',
+        'Enabling biometrics allows an adversary to force unlock your real contacts using your face or finger, bypassing Duress Mode.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => {
+              setBiometricsEnabled(false);
+            },
+          },
+          {
+            text: 'Enable Anyway',
+            style: 'destructive',
+            onPress: async () => {
+              setBiometricsEnabled(true);
+              const updated = { ...settings, biometricsEnabled: true };
+              setSettings(updated);
+              await saveSettings(updated);
+              await refreshLockState();
+            },
+          },
+        ]
+      );
+      return;
+    }
+    setBiometricsEnabled(val);
+    const updated = { ...settings, biometricsEnabled: val };
+    setSettings(updated);
+    saveSettings(updated);
+    refreshLockState();
   };
 
   // Listen for shake sensitivity test samples
@@ -662,14 +699,18 @@ export function SettingsScreen() {
               </View>
               <Switch
                 value={biometricsEnabled}
-                onValueChange={(val) => {
-                  setBiometricsEnabled(val);
-                  setSettings((s) => ({ ...s, biometricsEnabled: val }));
-                }}
+                onValueChange={handleBiometricsToggle}
                 trackColor={{ false: '#3A3A3C', true: '#2E7D32' }}
                 thumbColor="#FFFFFF"
               />
             </View>
+            {duressPinConfigured && biometricsEnabled ? (
+              <View style={styles.coercionWarningBox}>
+                <Text style={styles.coercionWarningText}>
+                  ⚠️ Warning: Enabling biometrics allows an adversary to force unlock your real contacts using your face or finger, bypassing Duress Mode.
+                </Text>
+              </View>
+            ) : null}
           </View>
 
           {/* Lock Timeout Selection */}
@@ -1253,6 +1294,20 @@ const styles = StyleSheet.create({
   },
   timeoutOptionText: { color: '#8E8E93', fontSize: 12, fontWeight: '600' },
   timeoutOptionTextActive: { color: 'white', fontWeight: '700' },
+  coercionWarningBox: {
+    backgroundColor: '#3A1014',
+    borderColor: '#D7263D',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+  },
+  coercionWarningText: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
   saveButton: {
     backgroundColor: '#D7263D',
     borderRadius: 8,

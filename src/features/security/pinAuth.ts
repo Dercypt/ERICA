@@ -24,6 +24,17 @@ import {
   wipeMasterKeyMemory,
   deleteMasterKey,
 } from './masterKey';
+import { getSettings, saveSettings } from '../settings/settingsStorage';
+
+let duressModeActive = false;
+
+export function isDuressModeActive(): boolean {
+  return duressModeActive;
+}
+
+export function setDuressModeActive(active: boolean): void {
+  duressModeActive = active;
+}
 
 export const PIN_AUTH_STORAGE_KEY = 'erica_pin_auth_record_v1';
 export const DURESS_PIN_STORAGE_KEY = 'erica_duress_pin_record_v1';
@@ -191,6 +202,12 @@ export async function setupDuressPin(
 
   const record = await hashPin(duressPin, undefined, iterations);
   await saveSecureItem(DURESS_PIN_STORAGE_KEY, JSON.stringify(record));
+
+  // Coercion Guard: As soon as a Duress PIN is set, biometrics are automatically disabled by default
+  const settings = await getSettings();
+  if (settings.biometricsEnabled !== false) {
+    await saveSettings({ ...settings, biometricsEnabled: false });
+  }
 }
 
 /**
@@ -394,5 +411,6 @@ export async function resetSecurity(): Promise<void> {
   await deleteSecureItem(PIN_AUTH_STORAGE_KEY);
   await deleteSecureItem(DURESS_PIN_STORAGE_KEY);
   await resetPinLockout();
+  duressModeActive = false;
   await deleteMasterKey();
 }
