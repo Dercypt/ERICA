@@ -2,31 +2,84 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { addContact, getContacts, removeContact, updateContact, type Contact } from './contactsStorage';
+import {
+  addContact,
+  getContacts,
+  removeContact,
+  updateContact,
+  DecryptionFailedError,
+  type Contact,
+} from './contactsStorage';
 
 export function ContactsScreen() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    getContacts().then(setContacts);
+    setErrorMessage(null);
+    getContacts()
+      .then((data) => {
+        setContacts(data);
+      })
+      .catch((err) => {
+        if (err instanceof DecryptionFailedError || err?.name === 'DecryptionFailedError') {
+          setErrorMessage(
+            'Decryption failed: Unable to decrypt contacts vault. Please re-authenticate or restore.'
+          );
+        } else {
+          setErrorMessage(err?.message || 'Failed to load contacts.');
+        }
+      });
   }, []);
 
   useFocusEffect(load);
 
   const onSave = async () => {
     if (!name.trim() || !phone.trim()) return;
-    if (editingId) {
-      const updated = await updateContact({ id: editingId, name: name.trim(), phoneNumber: phone.trim() });
-      setContacts(updated);
-      setEditingId(null);
-    } else {
-      setContacts(await addContact({ name: name.trim(), phoneNumber: phone.trim() }));
+    try {
+      if (editingId) {
+        const updated = await updateContact({
+          id: editingId,
+          name: name.trim(),
+          phoneNumber: phone.trim(),
+        });
+        setContacts(updated);
+        setEditingId(null);
+      } else {
+        setContacts(await addContact({ name: name.trim(), phoneNumber: phone.trim() }));
+      }
+      setName('');
+      setPhone('');
+      setErrorMessage(null);
+    } catch (err: any) {
+      if (err instanceof DecryptionFailedError || err?.name === 'DecryptionFailedError') {
+        setErrorMessage(
+          'Decryption failed: Unable to decrypt contacts vault. Please re-authenticate or restore.'
+        );
+      } else {
+        setErrorMessage(err?.message || 'Failed to save contact.');
+      }
     }
-    setName('');
-    setPhone('');
+  };
+
+  const onRemove = (id: string) => {
+    removeContact(id)
+      .then((updated) => {
+        setContacts(updated);
+        setErrorMessage(null);
+      })
+      .catch((err: any) => {
+        if (err instanceof DecryptionFailedError || err?.name === 'DecryptionFailedError') {
+          setErrorMessage(
+            'Decryption failed: Unable to decrypt contacts vault. Please re-authenticate or restore.'
+          );
+        } else {
+          setErrorMessage(err?.message || 'Failed to remove contact.');
+        }
+      });
   };
 
   const onStartEdit = (contact: Contact) => {
@@ -44,6 +97,12 @@ export function ContactsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Text style={styles.title}>Trusted Contacts</Text>
+      {errorMessage ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorBannerTitle}>⚠️ Vault Locked / Decryption Failed</Text>
+          <Text style={styles.errorBannerText}>{errorMessage}</Text>
+        </View>
+      ) : null}
       <FlatList
         data={contacts}
         keyExtractor={(c) => c.id}
@@ -58,7 +117,7 @@ export function ContactsScreen() {
               <Pressable onPress={() => onStartEdit(item)} style={styles.actionBtn}>
                 <Text style={styles.edit}>Edit</Text>
               </Pressable>
-              <Pressable onPress={() => removeContact(item.id).then(setContacts)} style={styles.actionBtn}>
+              <Pressable onPress={() => onRemove(item.id)} style={styles.actionBtn}>
                 <Text style={styles.remove}>Remove</Text>
               </Pressable>
             </View>
@@ -95,6 +154,24 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0B0B0F', padding: 16 },
   title: { color: 'white', fontSize: 20, fontWeight: '700', marginBottom: 12 },
   empty: { color: '#8E8E93', marginTop: 24, textAlign: 'center' },
+  errorBanner: {
+    backgroundColor: '#2A1215',
+    borderColor: '#D7263D',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+  },
+  errorBannerTitle: {
+    color: '#FF6B6B',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  errorBannerText: {
+    color: '#F8D7DA',
+    fontSize: 13,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',

@@ -53,7 +53,49 @@ const loadSettings = fromPromise(async () => getSettings());
 
 const dispatchEmergency = fromPromise(async ({ input }: { input: { context: SosContext } }) => {
   const { context } = input;
-  const [contacts, location] = await Promise.all([getContacts(), getCurrentLocation()]);
+
+  // Defensive wrap around contact decryption (Non-Negotiable Safety Law)
+  let contacts: any[] = [];
+  let contactDecryptionFailed = false;
+
+  try {
+    contacts = await getContacts();
+  } catch (err) {
+    console.warn('[sosMachine] Defensive fallback: contact decryption failed (e.g. lost key):', err);
+    contactDecryptionFailed = true;
+  }
+
+  // Acquire live GPS coordinates (must proceed regardless of contact decryption failure)
+  let location: LocationResult | null = null;
+  try {
+    location = await getCurrentLocation();
+  } catch (locErr) {
+    console.warn('[sosMachine] Failed to acquire GPS coordinates:', locErr);
+  }
+
+  if (contactDecryptionFailed) {
+    // Non-Negotiable Safety Law: Never crash or abort emergency when vault is locked/corrupted.
+    // Acquire live GPS coordinates, maintain emergency state, and display verified guidance:
+    // "Contacts unavailable (vault locked) — Call Emergency Services (911)"
+    try {
+      await appendHistoryEntry({
+        sessionId: context.sessionId as string,
+        triggerSource: context.triggerSource,
+        startedAt: context.startedAt as number,
+        resolvedAt: null,
+        locationCaptured: location !== null,
+      });
+    } catch {
+      // Emergency history logging failure must never abort emergency
+    }
+
+    const fallbackError = new Error(
+      'Contacts unavailable (vault locked) — Call Emergency Services (911)'
+    );
+    (fallbackError as any).location = location;
+    throw fallbackError;
+  }
+
   const result = await dispatchEmergencySms({ contacts, location, triggerSource: context.triggerSource });
   if (!result.attempted) {
     if (contacts.length === 0) {
@@ -61,6 +103,7 @@ const dispatchEmergency = fromPromise(async ({ input }: { input: { context: SosC
     }
     throw new Error('SMS service is unavailable on this device.');
   }
+
   await appendHistoryEntry({
     sessionId: context.sessionId as string,
     triggerSource: context.triggerSource,
@@ -68,15 +111,31 @@ const dispatchEmergency = fromPromise(async ({ input }: { input: { context: SosC
     resolvedAt: null,
     locationCaptured: location !== null,
   });
+
   return { location };
 });
 
 const dispatchSafe = fromPromise(async ({ input }: { input: { context: SosContext } }) => {
   const { context } = input;
-  const contacts = await getContacts();
-  await dispatchSafeSms(contacts);
+  let contacts: any[] = [];
+  try {
+    contacts = await getContacts();
+  } catch (err) {
+    console.warn('[sosMachine] Defensive fallback in dispatchSafe: contact decryption failed:', err);
+  }
+
+  if (contacts.length > 0) {
+    try {
+      await dispatchSafeSms(contacts);
+    } catch (smsErr) {
+      console.warn('[sosMachine] Safe SMS dispatch error:', smsErr);
+    }
+  }
+
   if (context.sessionId) {
-    await resolveHistoryEntry(context.sessionId, Date.now());
+    try {
+      await resolveHistoryEntry(context.sessionId, Date.now());
+    } catch {}
   }
 });
 
@@ -196,6 +255,10 @@ export const sosMachine = setup({
             assign({
               lastError: ({ event }) =>
                 event.error instanceof Error ? event.error.message : String(event.error),
+              location: ({ event }) =>
+                event.error && typeof event.error === 'object' && 'location' in event.error
+                  ? (event.error as any).location
+                  : null,
             }),
             'releaseWakeLock',
           ],

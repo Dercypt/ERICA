@@ -1,12 +1,18 @@
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Alert } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { RootNavigator, navigationRef } from './src/app';
 import { initDispatchEngine } from './src/features/dispatch';
 import { getSettings } from './src/features/settings';
 import { getSosService } from './src/features/sos';
-import { useAppLock, LockScreen, DecoyScreen, runStorageMigration } from './src/features/security';
+import {
+  useAppLock,
+  LockScreen,
+  DecoyScreen,
+  runStorageMigration,
+  runCryptoSanityCheck,
+} from './src/features/security';
 import {
   configureVolumeTrigger,
   configureShakeTrigger,
@@ -79,9 +85,33 @@ function MainApp() {
 }
 
 export default function App() {
+  const [cryptoCorrupted, setCryptoCorrupted] = useState(false);
+
   useEffect(() => {
     let cleanupDispatch: (() => void) | undefined;
     let cleanupTriggers: (() => void) | undefined;
+
+    // Mini-Step 3: Silent encrypt/decrypt sanity check at app mount
+    runCryptoSanityCheck()
+      .then((passed) => {
+        if (!passed) {
+          setCryptoCorrupted(true);
+          Alert.alert(
+            'Security Warning',
+            'Cryptographic engine self-test failed. Stored data may be inaccessible.',
+            [{ text: 'OK' }]
+          );
+        }
+      })
+      .catch((err) => {
+        console.warn('[App] Startup crypto self-test error:', err);
+        setCryptoCorrupted(true);
+        Alert.alert(
+          'Security Warning',
+          'Cryptographic engine self-test failed. Stored data may be inaccessible.',
+          [{ text: 'OK' }]
+        );
+      });
 
     // Phase 3: Automated Safe One-Time Storage Migration
     runStorageMigration().catch((err) => {
@@ -113,7 +143,29 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
+      {cryptoCorrupted && (
+        <View style={styles.warningBanner}>
+          <Text style={styles.warningText}>
+            ⚠️ Security Warning: Cryptographic engine self-test failed. Stored data may be inaccessible.
+          </Text>
+        </View>
+      )}
       <MainApp />
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  warningBanner: {
+    backgroundColor: '#D7263D',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    zIndex: 9999,
+  },
+  warningText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+});

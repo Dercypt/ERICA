@@ -17,7 +17,14 @@ import {
   wipeBuffer,
   wipeBuffers,
 } from './keyDerivation';
+import {
+  nativeAesGcmEncrypt,
+  nativeAesGcmDecrypt,
+  runCryptoSanityCheck,
+} from './nativeCrypto';
 import { withMasterKey } from './masterKey';
+
+export { runCryptoSanityCheck };
 
 export const AES_GCM_IV_BYTE_LENGTH = 12; // 96-bit IV per NIST SP 800-38D
 export const AES_GCM_TAG_BYTE_LENGTH = 16; // 128-bit authentication tag
@@ -89,51 +96,9 @@ export async function encryptData(
   let tagBytes: Uint8Array | null = null;
 
   try {
-    // 1. WebCrypto subtle implementation (Hermes RN 0.86+ / Web / Node)
-    if (
-      typeof globalThis !== 'undefined' &&
-      globalThis.crypto?.subtle &&
-      typeof globalThis.crypto.subtle.importKey === 'function' &&
-      typeof globalThis.crypto.subtle.encrypt === 'function'
-    ) {
-      try {
-        const cryptoKey = await globalThis.crypto.subtle.importKey(
-          'raw',
-          key as any,
-          { name: 'AES-GCM' },
-          false,
-          ['encrypt']
-        );
-        const encryptedBuffer = await globalThis.crypto.subtle.encrypt(
-          { name: 'AES-GCM', iv: iv as any, tagLength: 128 },
-          cryptoKey,
-          plaintextBytes as any
-        );
-        const encryptedBytes = new Uint8Array(encryptedBuffer);
-        ciphertextBytes = encryptedBytes.slice(0, encryptedBytes.length - AES_GCM_TAG_BYTE_LENGTH);
-        tagBytes = encryptedBytes.slice(encryptedBytes.length - AES_GCM_TAG_BYTE_LENGTH);
-      } catch {
-        // Fall back to Node crypto if subtle fails
-      }
-    }
-
-    // 2. Node.js native crypto fallback
-    if (!ciphertextBytes || !tagBytes) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const nodeCrypto = require('crypto');
-        const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key, iv);
-        const ct1 = cipher.update(plaintextBytes);
-        const ct2 = cipher.final();
-        const ctBuf = new Uint8Array(ct1.length + ct2.length);
-        ctBuf.set(ct1, 0);
-        ctBuf.set(ct2, ct1.length);
-        ciphertextBytes = ctBuf;
-        tagBytes = new Uint8Array(cipher.getAuthTag());
-      } catch (err) {
-        throw new Error(`AES-256-GCM encryption unavailable on this platform: ${err}`);
-      }
-    }
+    const encResult = nativeAesGcmEncrypt(plaintextBytes, key, iv);
+    ciphertextBytes = encResult.ciphertextBytes;
+    tagBytes = encResult.tagBytes;
 
     return {
       version: 1,
@@ -178,56 +143,7 @@ export async function decryptData(
   let decryptedBytes: Uint8Array | null = null;
 
   try {
-    // 1. WebCrypto subtle implementation
-    if (
-      typeof globalThis !== 'undefined' &&
-      globalThis.crypto?.subtle &&
-      typeof globalThis.crypto.subtle.importKey === 'function' &&
-      typeof globalThis.crypto.subtle.decrypt === 'function'
-    ) {
-      try {
-        const cryptoKey = await globalThis.crypto.subtle.importKey(
-          'raw',
-          key as any,
-          { name: 'AES-GCM' },
-          false,
-          ['decrypt']
-        );
-        // Subtle expects ciphertext || tag combined
-        const combined = new Uint8Array(ciphertextBytes.length + tagBytes.length);
-        combined.set(ciphertextBytes, 0);
-        combined.set(tagBytes, ciphertextBytes.length);
-
-        const decryptedBuffer = await globalThis.crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: ivBytes as any, tagLength: 128 },
-          cryptoKey,
-          combined as any
-        );
-        decryptedBytes = new Uint8Array(decryptedBuffer);
-        wipeBuffer(combined);
-      } catch {
-        // Fall back to Node crypto if subtle fails
-      }
-    }
-
-    // 2. Node.js native crypto fallback
-    if (!decryptedBytes) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const nodeCrypto = require('crypto');
-        const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', key, ivBytes);
-        decipher.setAuthTag(tagBytes);
-        const pt1 = decipher.update(ciphertextBytes);
-        const pt2 = decipher.final();
-        const decBuf = new Uint8Array(pt1.length + pt2.length);
-        decBuf.set(pt1, 0);
-        decBuf.set(pt2, pt1.length);
-        decryptedBytes = decBuf;
-      } catch {
-        throw new Error('Decryption failed: authentication tag verification failed or corrupted ciphertext.');
-      }
-    }
-
+    decryptedBytes = nativeAesGcmDecrypt(ciphertextBytes, key, ivBytes, tagBytes);
     return new TextDecoder().decode(decryptedBytes);
   } finally {
     wipeBuffers(ivBytes, tagBytes, ciphertextBytes, decryptedBytes);

@@ -14,6 +14,12 @@ export const DEFAULT_SALT_BYTES = 32; // 256-bit salt
 export const DEFAULT_KEY_BYTES = 32; // 256-bit key length
 export const PBKDF2_ALGORITHM_NAME = 'PBKDF2-HMAC-SHA256';
 
+import {
+  nativeRandomBytes,
+  nativePbkdf2,
+  nativePbkdf2Sync,
+} from './nativeCrypto';
+
 export interface StretchedPinRecord {
   salt: string; // Hex-encoded salt
   hash: string; // Hex-encoded derived verification hash
@@ -88,23 +94,11 @@ export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
 
 /**
  * Generates cryptographically secure random bytes of specified length.
+ * Uses native JSI OpenSSL CSPRNG (react-native-quick-crypto) across Android and iOS,
+ * falling back to WebCrypto or Node.js CSPRNG where JSI is unavailable.
  */
 export function generateRandomBytes(byteLength: number): Uint8Array {
-  const bytes = new Uint8Array(byteLength);
-  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(bytes);
-    return bytes;
-  }
-  try {
-    // Node.js fallback
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nodeCrypto = require('crypto');
-    const random = nodeCrypto.randomBytes(byteLength);
-    bytes.set(random);
-    return bytes;
-  } catch {
-    throw new Error('Cryptographically secure random number generator is unavailable.');
-  }
+  return nativeRandomBytes(byteLength);
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +257,9 @@ export function hmacSha256(key: Uint8Array, message: Uint8Array): Uint8Array {
 }
 
 /**
- * Synchronous PBKDF2-HMAC-SHA256 (RFC 2898 / RFC 8018).
+ * Synchronous PBKDF2-HMAC-SHA256.
+ * Uses native JSI OpenSSL engine (react-native-quick-crypto) when available,
+ * falling back to @noble/hashes where JSI is unavailable (e.g. Node.js test runner).
  */
 export function pbkdf2HmacSha256Sync(
   password: string | Uint8Array,
@@ -271,45 +267,14 @@ export function pbkdf2HmacSha256Sync(
   iterations: number,
   keyLength: number
 ): Uint8Array {
-  const passBuf =
-    typeof password === 'string' ? new TextEncoder().encode(password) : new Uint8Array(password);
-  const numBlocks = Math.ceil(keyLength / 32);
-  const result = new Uint8Array(numBlocks * 32);
-
-  try {
-    for (let block = 1; block <= numBlocks; block++) {
-      const saltBlock = new Uint8Array(salt.length + 4);
-      saltBlock.set(salt);
-      new DataView(saltBlock.buffer).setUint32(salt.length, block, false);
-
-      let u = hmacSha256(passBuf, saltBlock);
-      wipeBuffer(saltBlock);
-
-      const t = new Uint8Array(u);
-
-      for (let iter = 1; iter < iterations; iter++) {
-        const nextU = hmacSha256(passBuf, u);
-        wipeBuffer(u);
-        u = nextU;
-        for (let j = 0; j < 32; j++) {
-          t[j] ^= u[j];
-        }
-      }
-      wipeBuffer(u);
-
-      result.set(t, (block - 1) * 32);
-      wipeBuffer(t);
-    }
-    return result.slice(0, keyLength);
-  } finally {
-    wipeBuffer(passBuf);
-  }
+  return nativePbkdf2Sync(password, salt, iterations, keyLength);
 }
 
 /**
- * Asynchronous PBKDF2-HMAC-SHA256.
- * Uses hardware/platform acceleration (WebCrypto subtle or Node.js crypto)
- * when available, falling back to synchronous pure TS implementation.
+ * Asynchronous PBKDF2-HMAC-SHA256 key stretching.
+ * Uses react-native-quick-crypto (OpenSSL C++ JSI) as the single native engine across
+ * Android and iOS, retaining @noble/hashes purely as an automated test/headless fallback
+ * where JSI is unavailable (e.g. Node.js test runner).
  */
 export async function pbkdf2HmacSha256(
   password: string | Uint8Array,
@@ -317,64 +282,7 @@ export async function pbkdf2HmacSha256(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
   keyLength: number = DEFAULT_KEY_BYTES
 ): Promise<Uint8Array> {
-  const passBuf =
-    typeof password === 'string' ? new TextEncoder().encode(password) : new Uint8Array(password);
-
-  try {
-    // 1. WebCrypto API acceleration (Web / Node / modern runtimes)
-    if (
-      typeof globalThis !== 'undefined' &&
-      globalThis.crypto?.subtle &&
-      typeof globalThis.crypto.subtle.importKey === 'function' &&
-      typeof globalThis.crypto.subtle.deriveBits === 'function'
-    ) {
-      try {
-        const keyMaterial = await globalThis.crypto.subtle.importKey(
-          'raw',
-          passBuf,
-          { name: 'PBKDF2' },
-          false,
-          ['deriveBits']
-        );
-        const derived = await globalThis.crypto.subtle.deriveBits(
-          {
-            name: 'PBKDF2',
-            salt: salt as unknown as BufferSource,
-            iterations: iterations,
-            hash: 'SHA-256',
-          },
-          keyMaterial,
-          keyLength * 8
-        );
-        return new Uint8Array(derived);
-      } catch {
-        // Fall back if subtle fails
-      }
-    }
-
-    // 2. Node.js native crypto acceleration
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const nodeCrypto = require('crypto');
-      if (nodeCrypto && typeof nodeCrypto.pbkdf2Sync === 'function') {
-        const derived = nodeCrypto.pbkdf2Sync(
-          passBuf,
-          salt,
-          iterations,
-          keyLength,
-          'sha256'
-        );
-        return new Uint8Array(derived);
-      }
-    } catch {
-      // Fall back if require('crypto') fails
-    }
-
-    // 3. Portable pure TypeScript fallback
-    return pbkdf2HmacSha256Sync(passBuf, salt, iterations, keyLength);
-  } finally {
-    wipeBuffer(passBuf);
-  }
+  return await nativePbkdf2(password, salt, iterations, keyLength);
 }
 
 /**

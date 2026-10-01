@@ -14,6 +14,24 @@ export interface Contact {
 export const CONTACTS_STORAGE_KEY = '@erica/contacts';
 const STORAGE_KEY = CONTACTS_STORAGE_KEY;
 
+/**
+ * Explicit error thrown when contacts vault decryption fails.
+ * Fails loudly in contacts UI and dispatch so the user knows to re-authenticate or restore.
+ */
+export class DecryptionFailedError extends Error {
+  readonly cause?: unknown;
+
+  constructor(
+    message: string = 'Decryption failed: Unable to decrypt contacts vault. Please re-authenticate or restore.',
+    cause?: unknown
+  ) {
+    super(message);
+    this.name = 'DecryptionFailedError';
+    this.cause = cause;
+    Object.setPrototypeOf(this, DecryptionFailedError.prototype);
+  }
+}
+
 export async function getContacts(): Promise<Contact[]> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   if (!raw) {
@@ -27,7 +45,10 @@ export async function getContacts(): Promise<Contact[]> {
       return JSON.parse(decrypted) as Contact[];
     } catch (err) {
       console.warn('[contactsStorage] Failed to decrypt contacts:', err);
-      return [];
+      throw new DecryptionFailedError(
+        'Decryption failed: Unable to decrypt contacts vault. Please re-authenticate or restore.',
+        err
+      );
     }
   }
 
