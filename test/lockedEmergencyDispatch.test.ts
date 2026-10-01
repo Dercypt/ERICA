@@ -75,7 +75,7 @@ test.beforeEach(async () => {
 
 test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger fires while app UI is locked, completing background dispatch without PIN intervention', async () => {
   // 1. Setup primary PIN and trusted contacts
-  await setupPin('5137', 1000);
+  await setupPin('513792', 1000);
   const trustedContacts: Contact[] = [
     { id: 'contact_1', name: 'Guardian Alice', phoneNumber: '+15559876543' },
     { id: 'contact_2', name: 'Responder Bob', phoneNumber: '+15551234567' },
@@ -166,7 +166,7 @@ test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger
     assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'UI remains locked after stand down');
 
     // 11. Legitimate user finally enters PIN to inspect history
-    const unlocked = await appLockController.unlockWithPin('5137');
+    const unlocked = await appLockController.unlockWithPin('513792');
     assert.strictEqual(unlocked, true, 'Legitimate user PIN must unlock UI');
     assert.strictEqual(appLockController.getSnapshot().isLocked, false);
     assert.strictEqual(isVaultLocked(), false);
@@ -183,7 +183,7 @@ test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger
 });
 
 test('Task 3.2: Shake Sensor Panic Trigger while Locked: High-pass jerk trigger dispatches in background with zero leaks', async () => {
-  await setupPin('9922', 1000);
+  await setupPin('992211', 1000);
   await saveContacts([{ id: 'c1', name: 'Emergency Contact', phoneNumber: '+18005550199' }]);
 
   await appLockController.init();
@@ -252,7 +252,7 @@ test('Task 3.2: Shake Sensor Panic Trigger while Locked: High-pass jerk trigger 
 });
 
 test('Task 3.3: Adversary Interruption Resistance: Entering invalid PINs during emergency countdown or dispatch does NOT cancel or leak dispatch', async () => {
-  await setupPin('3333', 1000);
+  await setupPin('333333', 1000);
   await saveContacts([{ id: 'c1', name: 'Trusted Guardian', phoneNumber: '+15557778888' }]);
 
   await appLockController.init();
@@ -289,7 +289,7 @@ test('Task 3.3: Adversary Interruption Resistance: Entering invalid PINs during 
     assert.strictEqual(sosService.getSnapshot().value, 'countdown');
 
     // Adversary attempts to guess PIN on lock screen to abort/compromise app
-    const adversaryAttempts = ['0000', '1234', '9999'];
+    const adversaryAttempts = ['000000', '123456', '999999'];
     for (const guess of adversaryAttempts) {
       const res = await appLockController.unlockWithPin(guess);
       assert.strictEqual(res, false, 'Adversary guess must be rejected');

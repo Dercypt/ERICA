@@ -62,8 +62,8 @@ export async function setupPin(
   pin: string,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Promise<void> {
-  if (!pin || pin.length < 4) {
-    throw new Error('PIN must be at least 4 characters in length.');
+  if (!pin || pin.length < 6) {
+    throw new Error('PIN must be at least 6 characters in length.');
   }
 
   const record = await hashPin(pin, undefined, iterations);
@@ -83,8 +83,8 @@ export async function setupDuressPin(
   duressPin: string,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Promise<void> {
-  if (!duressPin || duressPin.length < 4) {
-    throw new Error('Duress PIN must be at least 4 characters in length.');
+  if (!duressPin || duressPin.length < 6) {
+    throw new Error('Duress PIN must be at least 6 characters in length.');
   }
 
   const primaryConfigured = await isPinConfigured();
@@ -212,8 +212,8 @@ export async function changePin(
     return false;
   }
 
-  if (!newPin || newPin.length < 4) {
-    throw new Error('New PIN must be at least 4 characters in length.');
+  if (!newPin || newPin.length < 6) {
+    throw new Error('New PIN must be at least 6 characters in length.');
   }
 
   const isSameAsDuress = await validateDuressPin(newPin);
@@ -239,8 +239,8 @@ export async function changeDuressPin(
     return false;
   }
 
-  if (!newDuressPin || newDuressPin.length < 4) {
-    throw new Error('New Duress PIN must be at least 4 characters in length.');
+  if (!newDuressPin || newDuressPin.length < 6) {
+    throw new Error('New Duress PIN must be at least 6 characters in length.');
   }
 
   const isSameAsPrimary = await validatePin(newDuressPin);

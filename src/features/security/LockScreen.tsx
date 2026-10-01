@@ -42,8 +42,8 @@ export function LockScreen() {
   }, [attemptBiometrics]);
 
   const handlePinSubmit = async () => {
-    if (!pin || pin.length < 4) {
-      setErrorMessage('PIN must be at least 4 digits');
+    if (!pin || pin.length < 6) {
+      setErrorMessage('PIN must be at least 6 digits');
       return;
     }
 

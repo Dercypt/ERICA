@@ -189,8 +189,8 @@ export function SettingsScreen() {
   );
 
   const handleSetupPin = async () => {
-    if (pinInput.length < 4) {
-      setPinMessage({ text: 'PIN must be at least 4 digits', error: true });
+    if (pinInput.length < 6) {
+      setPinMessage({ text: 'PIN must be at least 6 digits', error: true });
       return;
     }
     if (pinInput !== pinConfirmInput) {
@@ -210,8 +210,8 @@ export function SettingsScreen() {
   };
 
   const handleChangePin = async () => {
-    if (pinInput.length < 4) {
-      setPinMessage({ text: 'New PIN must be at least 4 digits', error: true });
+    if (pinInput.length < 6) {
+      setPinMessage({ text: 'New PIN must be at least 6 digits', error: true });
       return;
     }
     if (pinInput !== pinConfirmInput) {
@@ -239,8 +239,8 @@ export function SettingsScreen() {
   };
 
   const handleSetupDuressPin = async () => {
-    if (duressPinInput.length < 4) {
-      setDuressPinMessage({ text: 'Duress PIN must be at least 4 digits', error: true });
+    if (duressPinInput.length < 6) {
+      setDuressPinMessage({ text: 'Duress PIN must be at least 6 digits', error: true });
       return;
     }
     if (duressPinInput !== duressPinConfirmInput) {
@@ -263,8 +263,8 @@ export function SettingsScreen() {
   };
 
   const handleChangeDuressPin = async () => {
-    if (duressPinInput.length < 4) {
-      setDuressPinMessage({ text: 'New Duress PIN must be at least 4 digits', error: true });
+    if (duressPinInput.length < 6) {
+      setDuressPinMessage({ text: 'New Duress PIN must be at least 6 digits', error: true });
       return;
     }
     if (duressPinInput !== duressPinConfirmInput) {
@@ -562,10 +562,10 @@ export function SettingsScreen() {
 
             {!pinConfigured ? (
               <View style={styles.pinForm}>
-                <Text style={styles.label}>Set 4-8 Digit Custom PIN</Text>
+                <Text style={styles.label}>Set 6-8 Digit Custom PIN</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="New PIN (min 4 digits)"
+                  placeholder="New PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -599,7 +599,7 @@ export function SettingsScreen() {
                 />
                 <TextInput
                   style={[styles.input, { marginTop: 8 }]}
-                  placeholder="New PIN (min 4 digits)"
+                  placeholder="New PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -740,10 +740,10 @@ export function SettingsScreen() {
               </Text>
             ) : !duressPinConfigured ? (
               <View style={styles.pinForm}>
-                <Text style={styles.label}>Set 4-8 Digit Duress PIN</Text>
+                <Text style={styles.label}>Set 6-8 Digit Duress PIN</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="New Duress PIN (min 4 digits)"
+                  placeholder="New Duress PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry
@@ -777,7 +777,7 @@ export function SettingsScreen() {
                 />
                 <TextInput
                   style={[styles.input, { marginTop: 8 }]}
-                  placeholder="New Duress PIN (min 4 digits)"
+                  placeholder="New Duress PIN (min 6 digits)"
                   placeholderTextColor="#8E8E93"
                   keyboardType="number-pad"
                   secureTextEntry

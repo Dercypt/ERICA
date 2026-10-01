@@ -62,8 +62,8 @@ test.beforeEach(async () => {
 
 test('1. Duress Mode Anti-Coercion: Decoy screen, real vault isolation, and stealth silent SOS', async () => {
   // Setup primary and duress PINs
-  await setupPin('1357', 1_000);
-  await setupDuressPin('2468', 1_000);
+  await setupPin('135790', 1_000);
+  await setupDuressPin('246810', 1_000);
 
   // Setup real trusted contact
   await saveContacts([{ id: 'real-1', name: 'Sister Sarah', phoneNumber: '+14155552671' }]);
@@ -109,8 +109,8 @@ test('1. Duress Mode Anti-Coercion: Decoy screen, real vault isolation, and stea
     assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
     assert.strictEqual(isVaultLocked(), true);
 
-    // Adversary forces victim to enter PIN; victim enters Duress PIN '2468'
-    const unlockResult = await appLockController.unlockWithPin('2468');
+    // Adversary forces victim to enter PIN; victim enters Duress PIN '246810'
+    const unlockResult = await appLockController.unlockWithPin('246810');
 
     // 1. Never alert adversary: returns true, no error shown
     assert.strictEqual(unlockResult, true, 'Duress PIN entry must succeed to avoid alerting adversary');
@@ -153,9 +153,9 @@ test('1. Duress Mode Anti-Coercion: Decoy screen, real vault isolation, and stea
     assert.strictEqual(appLockController.getSnapshot().isLocked, true);
     assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
 
-    // 6. When legitimate user enters primary PIN '1357'
+    // 6. When legitimate user enters primary PIN '135790'
     (AppState as any)._setAppState('active');
-    const primaryUnlock = await appLockController.unlockWithPin('1357');
+    const primaryUnlock = await appLockController.unlockWithPin('135790');
     assert.strictEqual(primaryUnlock, true);
     assert.strictEqual(appLockController.getSnapshot().isLocked, false);
     assert.strictEqual(appLockController.getSnapshot().isDuressMode, false);
@@ -172,8 +172,8 @@ test('1. Duress Mode Anti-Coercion: Decoy screen, real vault isolation, and stea
 });
 
 test('2. Decoy Screen Modes: Empty contacts display option', async () => {
-  await setupPin('1111', 1_000);
-  await setupDuressPin('9999', 1_000);
+  await setupPin('111111', 1_000);
+  await setupDuressPin('999999', 1_000);
   await saveSettings({
     ...DEFAULT_SETTINGS,
     decoyContactsType: 'empty',
@@ -181,7 +181,7 @@ test('2. Decoy Screen Modes: Empty contacts display option', async () => {
   });
 
   await appLockController.init();
-  await appLockController.unlockWithPin('9999');
+  await appLockController.unlockWithPin('999999');
 
   const contacts = await getDecoyContacts();
   assert.deepStrictEqual(contacts, [], 'Empty decoy mode must serve empty contacts list');
@@ -194,36 +194,36 @@ test('2. Decoy Screen Modes: Empty contacts display option', async () => {
 });
 
 test('3. PIN Discretion: AuthenticatePin identifies primary, duress, or invalid', async () => {
-  await setupPin('4567', 1_000);
-  await setupDuressPin('8901', 1_000);
+  await setupPin('456789', 1_000);
+  await setupDuressPin('890123', 1_000);
 
-  assert.deepStrictEqual(await authenticatePin('4567'), { type: 'primary' });
-  assert.deepStrictEqual(await authenticatePin('8901'), { type: 'duress' });
-  assert.deepStrictEqual(await authenticatePin('0000'), { type: 'invalid' });
+  assert.deepStrictEqual(await authenticatePin('456789'), { type: 'primary' });
+  assert.deepStrictEqual(await authenticatePin('890123'), { type: 'duress' });
+  assert.deepStrictEqual(await authenticatePin('000000'), { type: 'invalid' });
   assert.deepStrictEqual(await authenticatePin(''), { type: 'invalid' });
 });
 
 test('4. Duress PIN Collision Invariants & Lifecycle', async () => {
-  await setupPin('5555', 1_000);
+  await setupPin('555555', 1_000);
 
   // Duress PIN cannot match primary PIN
   await assert.rejects(
-    async () => setupDuressPin('5555', 1_000),
+    async () => setupDuressPin('555555', 1_000),
     /Duress PIN cannot be the same as your primary PIN/
   );
 
-  await setupDuressPin('7777', 1_000);
+  await setupDuressPin('777777', 1_000);
   assert.strictEqual(await isDuressPinConfigured(), true);
 
   // Primary PIN cannot change to match existing Duress PIN
   await assert.rejects(
-    async () => changePin('5555', '7777', 1_000),
+    async () => changePin('555555', '777777', 1_000),
     /Primary PIN cannot be the same as your Duress PIN/
   );
 
   // Changing duress PIN
-  assert.strictEqual(await changeDuressPin('0000', '8888', 1_000), false);
-  assert.strictEqual(await changeDuressPin('7777', '8888', 1_000), true);
+  assert.strictEqual(await changeDuressPin('000000', '888888', 1_000), false);
+  assert.strictEqual(await changeDuressPin('777777', '888888', 1_000), true);
 
   // Remove duress PIN
   await removeDuressPin();

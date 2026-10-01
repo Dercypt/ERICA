@@ -76,7 +76,7 @@ test('Task 1.1: PIN Hashing & Salting: PBKDF2 stretching, 256-bit salt uniquenes
 });
 
 test('Task 1.2: Salt Rotation & Forward Secrecy: Changing PIN rotates salt and invalidates precomputed adversary tables', async () => {
-  await setupPin('1234', 1000);
+  await setupPin('123456', 1000);
 
   const initialRecordJson = (await getSecureItem(PIN_AUTH_STORAGE_KEY))!;
   const initialRecord = JSON.parse(initialRecordJson);
@@ -86,7 +86,7 @@ test('Task 1.2: Salt Rotation & Forward Secrecy: Changing PIN rotates salt and i
   const adversaryStolenHash = initialRecord.hash;
 
   // Legitimate user changes PIN
-  const changed = await changePin('1234', '5678', 1000);
+  const changed = await changePin('123456', '567890', 1000);
   assert.strictEqual(changed, true, 'PIN change must succeed with valid current PIN');
 
   const newRecordJson = (await getSecureItem(PIN_AUTH_STORAGE_KEY))!;
@@ -97,22 +97,23 @@ test('Task 1.2: Salt Rotation & Forward Secrecy: Changing PIN rotates salt and i
   assert.notStrictEqual(newRecord.hash, adversaryStolenHash, 'Derived hash must be rotated upon PIN change');
 
   // Old PIN no longer works
-  assert.strictEqual(await validatePin('1234'), false, 'Old PIN must no longer validate');
-  assert.strictEqual(await validatePin('5678'), true, 'New PIN must validate');
+  assert.strictEqual(await validatePin('123456'), false, 'Old PIN must no longer validate');
+  assert.strictEqual(await validatePin('567890'), true, 'New PIN must validate');
 
   // Stolen record cannot validate against newly changed state
-  assert.strictEqual(await verifyPinHash('5678', { salt: adversaryStolenSalt, hash: adversaryStolenHash, iterations: 1000 }), false);
+  assert.strictEqual(await verifyPinHash('567890', { salt: adversaryStolenSalt, hash: adversaryStolenHash, iterations: 1000 }), false);
 });
 
 test('Task 1.3: Adversary Input Injection & Boundary Attacks: Short, empty, whitespace, and injection inputs', async () => {
-  // Disallowed PIN setups (< 4 characters)
-  await assert.rejects(async () => setupPin(''), /at least 4 characters/);
-  await assert.rejects(async () => setupPin('1'), /at least 4 characters/);
-  await assert.rejects(async () => setupPin('12'), /at least 4 characters/);
-  await assert.rejects(async () => setupPin('123'), /at least 4 characters/);
+  // Disallowed PIN setups (< 6 characters)
+  await assert.rejects(async () => setupPin(''), /at least 6 characters/);
+  await assert.rejects(async () => setupPin('1'), /at least 6 characters/);
+  await assert.rejects(async () => setupPin('12'), /at least 6 characters/);
+  await assert.rejects(async () => setupPin('123'), /at least 6 characters/);
+  await assert.rejects(async () => setupPin('12345'), /at least 6 characters/);
 
   // Valid setup
-  await setupPin('9021', 1000);
+  await setupPin('902134', 1000);
   lockVault();
 
   // Adversary injection and edge case unlock attempts
@@ -121,6 +122,7 @@ test('Task 1.3: Adversary Input Injection & Boundary Attacks: Short, empty, whit
     '1',
     '12',
     '123',
+    '12345',
     ' ',
     '   ',
     "' OR '1'='1",
@@ -142,13 +144,13 @@ test('Task 1.3: Adversary Input Injection & Boundary Attacks: Short, empty, whit
 });
 
 test('Task 1.4: Adversary Storage Tampering: Corrupted SecureStore records fail safely with zero leaks', async () => {
-  await setupPin('7777', 1000);
+  await setupPin('777777', 1000);
   lockVault();
 
   // Case 1: Corrupted JSON syntax
   await saveSecureItem(PIN_AUTH_STORAGE_KEY, '{ invalid_json: true');
-  assert.strictEqual(await validatePin('7777'), false, 'Corrupted JSON must safely return false');
-  assert.strictEqual(await unlockWithPin('7777'), false);
+  assert.strictEqual(await validatePin('777777'), false, 'Corrupted JSON must safely return false');
+  assert.strictEqual(await unlockWithPin('777777'), false);
   assert.strictEqual(isVaultLocked(), true);
 
   // Case 2: Tampered non-hex salt
@@ -157,12 +159,12 @@ test('Task 1.4: Adversary Storage Tampering: Corrupted SecureStore records fail 
     hash: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
     iterations: 1000,
   }));
-  assert.strictEqual(await validatePin('7777'), false, 'Invalid hex salt must safely return false without crashing');
-  assert.strictEqual(await unlockWithPin('7777'), false);
+  assert.strictEqual(await validatePin('777777'), false, 'Invalid hex salt must safely return false without crashing');
+  assert.strictEqual(await unlockWithPin('777777'), false);
   assert.strictEqual(isVaultLocked(), true);
 
   // Case 3: Tampered hash bit (single bit flip)
-  await setupPin('7777', 1000);
+  await setupPin('777777', 1000);
   lockVault();
   const validJson = (await getSecureItem(PIN_AUTH_STORAGE_KEY))!;
   const parsed = JSON.parse(validJson);
@@ -170,14 +172,14 @@ test('Task 1.4: Adversary Storage Tampering: Corrupted SecureStore records fail 
   parsed.hash = (parsed.hash[0] === 'a' ? 'b' : 'a') + parsed.hash.substring(1);
   await saveSecureItem(PIN_AUTH_STORAGE_KEY, JSON.stringify(parsed));
 
-  assert.strictEqual(await validatePin('7777'), false, 'Flipped hash bit must fail validation');
-  assert.strictEqual(await unlockWithPin('7777'), false);
+  assert.strictEqual(await validatePin('777777'), false, 'Flipped hash bit must fail validation');
+  assert.strictEqual(await unlockWithPin('777777'), false);
   assert.strictEqual(isVaultLocked(), true);
   assert.strictEqual(isMasterKeyLoaded(), false, 'Master key must not load after failed validation');
 });
 
 test('Task 1.5: Adversary Brute-Force Simulation: Rapid unauthorized guessing guarantees zero leaks and locked state persistence', async () => {
-  const correctPin = '6149';
+  const correctPin = '614920';
   await setupPin(correctPin, 1000);
   lockVault();
 
@@ -186,10 +188,10 @@ test('Task 1.5: Adversary Brute-Force Simulation: Rapid unauthorized guessing gu
 
   // Simulate adversary executing rapid brute-force dictionary/sequential attempts
   const dictionary = [
-    '0000', '1234', '1111', '2222', '3333', '4444', '5555', '6666',
-    '7777', '8888', '9999', '1212', '2020', '1990', '1995', '2000',
-    '1357', '2468', '9876', '4321', '0123', '6789', '2580', '1470',
-    '3690', '7410', '8520', '9630', '1122', '3344', '5566', '7788',
+    '000000', '123456', '111111', '222222', '333333', '444444', '555555', '666666',
+    '777777', '888888', '999999', '121212', '202020', '199090', '199595', '200000',
+    '135790', '246810', '987654', '432109', '012345', '678901', '258025', '147014',
+    '369036', '741074', '852085', '963096', '112233', '334455', '556677', '778899',
   ];
 
   for (const guess of dictionary) {
@@ -221,7 +223,7 @@ test('Task 1.6: Full State Transition Matrix: Unconfigured -> Configured -> Lock
   assert.strictEqual(isMasterKeyLoaded(), false);
 
   // S0 -> S1: SETUP_PIN
-  await setupPin('4820', 1000);
+  await setupPin('482015', 1000);
   assert.strictEqual(await isPinConfigured(), true);
   assert.strictEqual(isVaultLocked(), false);
   assert.strictEqual(isMasterKeyLoaded(), true);
@@ -234,13 +236,13 @@ test('Task 1.6: Full State Transition Matrix: Unconfigured -> Configured -> Lock
   assert.throws(() => getActiveMasterKey(), /Master key is locked/);
 
   // S2 -> S2: FAILED UNLOCK (State unchanged)
-  const failed = await unlockWithPin('9999');
+  const failed = await unlockWithPin('999999');
   assert.strictEqual(failed, false);
   assert.strictEqual(isVaultLocked(), true);
   assert.strictEqual(isMasterKeyLoaded(), false);
 
   // S2 -> S3: SUCCESSFUL UNLOCK
-  const succeeded = await unlockWithPin('4820');
+  const succeeded = await unlockWithPin('482015');
   assert.strictEqual(succeeded, true);
   assert.strictEqual(isVaultLocked(), false);
   assert.strictEqual(isMasterKeyLoaded(), true);
@@ -252,7 +254,7 @@ test('Task 1.6: Full State Transition Matrix: Unconfigured -> Configured -> Lock
   assert.strictEqual(isVaultLocked(), true);
 
   // Unlock via controller with PIN
-  const ctrlUnlock = await appLockController.unlockWithPin('4820');
+  const ctrlUnlock = await appLockController.unlockWithPin('482015');
   assert.strictEqual(ctrlUnlock, true);
   assert.strictEqual(appLockController.getSnapshot().isLocked, false);
   assert.strictEqual(isVaultLocked(), false);
@@ -264,11 +266,11 @@ test('Task 1.6: Full State Transition Matrix: Unconfigured -> Configured -> Lock
   assert.strictEqual(isMasterKeyLoaded(), false);
 
   // Setup Duress PIN
-  await setupDuressPin('9999', 1000);
+  await setupDuressPin('999999', 1000);
   await appLockController.refreshState();
 
   // Unlock with Duress PIN: transitions UI to decoy mode, but keeps real vault LOCKED
-  const duressUnlock = await appLockController.unlockWithPin('9999');
+  const duressUnlock = await appLockController.unlockWithPin('999999');
   assert.strictEqual(duressUnlock, true);
   assert.strictEqual(appLockController.getSnapshot().isLocked, false);
   assert.strictEqual(appLockController.getSnapshot().isDuressMode, true);
