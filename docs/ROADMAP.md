@@ -76,12 +76,14 @@ PIN, and the local database is unreadable without the app's key.
 
 ## Phase 4 — Deterrence & evidence
 
-1. Siren + strobe, respecting silent mode.
-2. Consent-gated audio recording.
-3. Consent-gated photo capture (front/rear).
+- [x] Siren + strobe, respecting silent mode.
+- [x] Consent-gated audio recording.
+- [x] Consent-gated photo capture (front/rear).
 
 All off the main thread — SOS-alerter blocked on geocoding and DB writes
 during its emergency path.
+
+**Done when:** Siren audio and strobe torch fire asynchronously off the main thread respecting ringer mode, ambient audio and dual-camera photos are consent-gated and encrypted at rest with AES-256-GCM, and deterministic teardown releases all hardware upon stand down.
 
 ## Phase 5 — Reliability & tests
 
