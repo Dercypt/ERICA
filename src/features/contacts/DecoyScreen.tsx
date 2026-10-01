@@ -1,7 +1,6 @@
-import React, { useCallback, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, FlatList, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
 import {
   addDecoyContact,
   getDecoyContacts,
@@ -27,11 +26,11 @@ export function DecoyScreen() {
   const [phone, setPhone] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  const load = useCallback(() => {
+  // Rendered by App.tsx outside the NavigationContainer, so navigation hooks such as
+  // useFocusEffect would throw here and crash the app in front of the adversary.
+  useEffect(() => {
     getDecoyContacts().then(setContacts);
   }, []);
-
-  useFocusEffect(load);
 
   const onSave = async () => {
     if (!name.trim() || !phone.trim()) return;
