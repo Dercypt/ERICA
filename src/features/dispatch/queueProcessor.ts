@@ -122,7 +122,7 @@ async function runFlush(options?: {
   let failed = 0;
   let processedItems: OutboxItem[] = [];
 
-  const isAvailable = await availabilityCheck();
+  const isAvailable = await availabilityCheck().catch(() => false);
   if (!isAvailable) {
     // Telephony hardware/permission missing or disabled, reschedule for later check
     const pending = await getAllPendingItems();

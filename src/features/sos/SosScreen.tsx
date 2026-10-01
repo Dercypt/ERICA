@@ -1,36 +1,53 @@
-import React, { useCallback, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, Pressable, StyleSheet, Platform, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSosService } from './sosMachine';
 import { getSettings } from '../settings/settingsStorage';
+import { requestEmergencyPermissions } from '../permissions/emergencyPermissions';
 import { addMarkSafeListener } from '../../../modules/foreground-service';
-import { addPanicTriggerListener } from '../../../modules/physical-triggers';
 
 export function SosScreen() {
   const [state, send] = useSosService();
+  const isIdle = state.matches('idle');
+  const [smsPermissionMissing, setSmsPermissionMissing] = useState(false);
 
+  // Physical panic triggers are handled once, globally, in App.tsx. Listening here as well
+  // sent every trigger to the machine twice.
   useEffect(() => {
     const markSafeSub = addMarkSafeListener(() => {
       send({ type: 'MARK_SAFE' });
     });
-    const panicSub = addPanicTriggerListener((event) => {
-      send({ type: 'TRIGGER', source: event.source });
-    });
     return () => {
       markSafeSub.remove();
-      panicSub.remove();
     };
   }, [send]);
 
+  // Ask for SEND_SMS / location / notifications before an emergency, not during one.
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    requestEmergencyPermissions().then((p) => setSmsPermissionMissing(!p.sms));
+  }, []);
+
+  const onGrantSmsPermission = async () => {
+    const p = await requestEmergencyPermissions();
+    setSmsPermissionMissing(!p.sms);
+    if (!p.sms) {
+      // Denied with "don't ask again": only the system settings page can grant it now.
+      Linking.openSettings().catch(() => {});
+    }
+  };
+
+  // Depends on `isIdle`, not the whole snapshot: SETTINGS_UPDATED produces a new snapshot,
+  // which re-ran this effect, which sent SETTINGS_UPDATED again — an endless storage loop.
   useFocusEffect(
     useCallback(() => {
-      if (state.matches('idle')) {
+      if (isIdle) {
         getSettings().then((s) => {
           send({ type: 'SETTINGS_UPDATED', countdownSeconds: s.countdownSeconds });
         });
       }
-    }, [state, send])
+    }, [isIdle, send])
   );
 
   return (
@@ -41,6 +58,13 @@ export function SosScreen() {
             <Text style={styles.sosButtonText}>SOS</Text>
           </Pressable>
           <Text style={styles.subtext}>Tap to initiate emergency alert ({state.context.countdownTotal}s countdown)</Text>
+          {smsPermissionMissing ? (
+            <Pressable style={styles.permissionBanner} onPress={onGrantSmsPermission}>
+              <Text style={styles.permissionBannerText}>
+                SMS permission is off, so alerts cannot reach your contacts. Tap to grant it.
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       )}
 
@@ -103,4 +127,6 @@ const styles = StyleSheet.create({
   dismissButtonText: { color: '#C7C7CC', fontWeight: '600' },
   safeButton: { backgroundColor: '#2E7D32', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
   safeButtonText: { color: 'white', fontWeight: '700' },
+  permissionBanner: { borderWidth: 1, borderColor: '#FF9F43', borderRadius: 12, padding: 12, maxWidth: 300 },
+  permissionBannerText: { color: '#FF9F43', fontSize: 13, textAlign: 'center' },
 });

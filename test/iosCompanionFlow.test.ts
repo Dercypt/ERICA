@@ -4,6 +4,7 @@ import { resetMockSecureStore } from './mockExpo.mjs';
 import { resetMockLocalAuthentication, setMockBiometricState } from './mockLocalAuthentication.mjs';
 import { setMockSmsAvailable, setMockSendResult, getLastSentSms, resetMockSms } from './mockSms.mjs';
 import { MockSQLiteDatabase } from './mockDatabase';
+import { Platform } from './mockReactNative.mjs';
 import {
   setupPin,
   lockVault,
@@ -32,6 +33,8 @@ import {
 } from '../src/features/sos/sosMachine';
 
 test.beforeEach(async () => {
+  // The composer fallback is the iOS companion path; Android always queues instead.
+  (Platform as { OS: string }).OS = 'ios';
   resetMockSecureStore();
   resetMockLocalAuthentication();
   resetMockSms();
@@ -49,6 +52,10 @@ test.beforeEach(async () => {
   });
   appLockController.destroy();
   resetDispatchEngineOverrides();
+});
+
+test.afterEach?.(() => {
+  (Platform as { OS: string }).OS = 'android';
 });
 
 test('Task 5.1: iOS Companion Check - Capability-honest detection: Silent SMS is unavailable, fallback composer is used', async () => {

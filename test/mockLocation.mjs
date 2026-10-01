@@ -2,7 +2,22 @@ export async function requestForegroundPermissionsAsync() {
   return { status: 'granted' };
 }
 
+export async function getForegroundPermissionsAsync() {
+  return { status: mockLocationState.permission };
+}
+
+export const mockLocationState = { permission: 'granted', hang: false, lastKnown: null };
+
+export function resetMockLocation() {
+  mockLocationState.permission = 'granted';
+  mockLocationState.hang = false;
+  mockLocationState.lastKnown = null;
+}
+
 export async function getCurrentPositionAsync() {
+  if (mockLocationState.hang) {
+    return new Promise(() => {});
+  }
   return {
     coords: {
       latitude: 14.599512,
@@ -14,7 +29,7 @@ export async function getCurrentPositionAsync() {
 }
 
 export async function getLastKnownPositionAsync() {
-  return null;
+  return mockLocationState.lastKnown;
 }
 
 export const Accuracy = {
@@ -28,6 +43,7 @@ export const Accuracy = {
 
 export default {
   requestForegroundPermissionsAsync,
+  getForegroundPermissionsAsync,
   getCurrentPositionAsync,
   getLastKnownPositionAsync,
   Accuracy,

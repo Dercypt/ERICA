@@ -3,6 +3,7 @@ import {
   encryptString,
   decryptString,
   isEncryptedPayload,
+  isDecryptionFailure,
 } from '../security/encryption';
 
 export type OutboxStatus = 'PENDING' | 'IN_FLIGHT' | 'SENT' | 'FAILED';
@@ -103,21 +104,44 @@ export function generateOutboxId(): string {
   return `msg_${ts}_${rnd}`;
 }
 
-async function decryptOutboxItem(item: OutboxItem): Promise<OutboxItem> {
-  if (isEncryptedPayload(item.payload)) {
-    try {
-      const decrypted = await decryptString(item.payload);
-      return { ...item, payload: decrypted };
-    } catch (err) {
-      console.warn(`[outboxQueue] Failed to decrypt payload for item ${item.id}:`, err);
-      return item;
-    }
+const UNDECRYPTABLE = Symbol('undecryptable');
+
+async function decryptOutboxItem(item: OutboxItem): Promise<OutboxItem | null | typeof UNDECRYPTABLE> {
+  if (!isEncryptedPayload(item.payload)) {
+    return item;
   }
-  return item;
+  try {
+    const decrypted = await decryptString(item.payload);
+    return { ...item, payload: decrypted };
+  } catch (err) {
+    console.warn(`[outboxQueue] Failed to decrypt payload for item ${item.id}:`, err);
+    // Tag verification failed: this row can never be decrypted with the current key.
+    // Any other error (e.g. SecureStore briefly unavailable) is transient; skip the row
+    // this round and leave it PENDING.
+    return isDecryptionFailure(err) ? UNDECRYPTABLE : null;
+  }
 }
 
+/**
+ * Decrypts rows for use. Rows that fail to decrypt are never returned: previously the
+ * raw ciphertext envelope was handed to the SMS sender and texted to the contact.
+ * Permanently undecryptable rows are marked FAILED so they stop being retried.
+ */
 async function decryptOutboxItems(items: OutboxItem[]): Promise<OutboxItem[]> {
-  return await Promise.all(items.map(decryptOutboxItem));
+  const results = await Promise.all(items.map(decryptOutboxItem));
+  const usable: OutboxItem[] = [];
+  const undecryptableIds: string[] = [];
+  results.forEach((r, i) => {
+    if (r === UNDECRYPTABLE) undecryptableIds.push(items[i].id);
+    else if (r) usable.push(r);
+  });
+  if (undecryptableIds.length > 0) {
+    const db = await getDatabase();
+    for (const id of undecryptableIds) {
+      await db.runAsync(`UPDATE outbox_queue SET status = ? WHERE id = ?;`, 'FAILED', id);
+    }
+  }
+  return usable;
 }
 
 /**

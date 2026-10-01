@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { sendSilentSms, isAvailableAsync } from '../../../modules/silent-sms';
 import type { Contact } from '../contacts/contactsStorage';
 import type { LocationResult } from '../location/locationService';
@@ -8,6 +9,19 @@ import { enqueueAndDispatch, isSmsAvailable } from './queueProcessor';
 export interface DispatchResult {
   attempted: boolean;
   recipients: string[];
+  /**
+   * False when the alert was queued on Android but SMS cannot be sent right now
+   * (SEND_SMS not granted, no telephony). The outbox retries until it can go out.
+   */
+  smsAvailable?: boolean;
+}
+
+async function checkSmsAvailable(): Promise<boolean> {
+  try {
+    return await isSmsAvailable();
+  } catch {
+    return false;
+  }
 }
 
 interface DispatchParams {
@@ -62,11 +76,14 @@ export async function dispatchEmergencySms({ contacts, location, triggerSource }
     `Time: ${new Date().toISOString()}`,
   ].join('\n');
 
-  const silentAvailable = await isSmsAvailable();
-  if (silentAvailable) {
+  const silentAvailable = await checkSmsAvailable();
+  // On Android the alert is always queued, even when SMS is unavailable right now: the
+  // composer needs a tap, and dropping the alert would break the non-loss guarantee
+  // (LAWS.md Law 2). The outbox keeps retrying until permission or signal returns.
+  if (silentAvailable || Platform.OS === 'android') {
     const ceilingMs = settings.retryCeilingSeconds ? settings.retryCeilingSeconds * 1000 : undefined;
     await enqueueAndDispatch(recipients, message, { ceilingMs });
-    return { attempted: true, recipients };
+    return { attempted: true, recipients, smsAvailable: silentAvailable };
   }
 
   // Capability-honest iOS companion flow fallback:
@@ -95,8 +112,8 @@ export async function dispatchSafeSms(contacts: Contact[]): Promise<DispatchResu
   }
 
   const message = 'EMERGENCY RESOLVED\n\nThe user has marked themselves safe.';
-  const silentAvailable = await isSmsAvailable();
-  if (silentAvailable) {
+  const silentAvailable = await checkSmsAvailable();
+  if (silentAvailable || Platform.OS === 'android') {
     const settings = await getSettings();
     const ceilingMs = settings.retryCeilingSeconds ? settings.retryCeilingSeconds * 1000 : undefined;
     await enqueueAndDispatch(
@@ -104,7 +121,7 @@ export async function dispatchSafeSms(contacts: Contact[]): Promise<DispatchResu
       message,
       { ceilingMs }
     );
-    return { attempted: true, recipients };
+    return { attempted: true, recipients, smsAvailable: silentAvailable };
   }
 
   // Capability-honest iOS companion flow fallback:
