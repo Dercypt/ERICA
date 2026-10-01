@@ -27,6 +27,98 @@ import {
 
 export const PIN_AUTH_STORAGE_KEY = 'erica_pin_auth_record_v1';
 export const DURESS_PIN_STORAGE_KEY = 'erica_duress_pin_record_v1';
+export const PIN_FAILED_ATTEMPTS_STORAGE_KEY = 'erica_pin_failed_attempts_v1';
+export const PIN_LOCKOUT_UNTIL_STORAGE_KEY = 'erica_pin_lockout_until_v1';
+
+/**
+ * Calculates the lockout delay in seconds according to the progressive backoff ladder:
+ * - 1-4 attempts: 0s (standard invalid PIN message)
+ * - 5 attempts: 30-second lockout
+ * - 6 attempts: 2-minute lockout (120s)
+ * - 7 attempts: 5-minute lockout (300s)
+ * - 8 attempts: 15-minute lockout (900s)
+ * - 9+ attempts: 30-minute lockout (1800s)
+ */
+export function getLockoutDurationSeconds(failedAttempts: number): number {
+  if (failedAttempts < 5) return 0;
+  if (failedAttempts === 5) return 30;
+  if (failedAttempts === 6) return 120;
+  if (failedAttempts === 7) return 300;
+  if (failedAttempts === 8) return 900;
+  return 1800;
+}
+
+/**
+ * Retrieves the persisted count of consecutive failed PIN attempts from hardware SecureStore.
+ */
+export async function getFailedPinAttempts(): Promise<number> {
+  const raw = await getSecureItem(PIN_FAILED_ATTEMPTS_STORAGE_KEY);
+  if (!raw) return 0;
+  const count = parseInt(raw, 10);
+  return isNaN(count) ? 0 : count;
+}
+
+/**
+ * Retrieves the remaining lockout duration in seconds, or 0 if not currently locked out.
+ * Reads the expiration timestamp from SecureStore to ensure app reboots cannot clear the lockout timer.
+ */
+export async function getLockoutRemainingSeconds(): Promise<number> {
+  const raw = await getSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY);
+  if (!raw) return 0;
+  const lockoutUntil = parseInt(raw, 10);
+  if (isNaN(lockoutUntil)) return 0;
+
+  const remainingMs = lockoutUntil - Date.now();
+  if (remainingMs <= 0) {
+    return 0;
+  }
+  return Math.ceil(remainingMs / 1000);
+}
+
+/**
+ * Checks whether the PIN authentication is currently throttled / locked out.
+ */
+export async function isPinLockedOut(): Promise<boolean> {
+  const remaining = await getLockoutRemainingSeconds();
+  return remaining > 0;
+}
+
+/**
+ * Clears failed attempts and active lockout timestamps from hardware SecureStore.
+ */
+export async function resetPinLockout(): Promise<void> {
+  await deleteSecureItem(PIN_FAILED_ATTEMPTS_STORAGE_KEY);
+  await deleteSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY);
+}
+
+/**
+ * Increments failed attempts counter and calculates new lockout expiration timestamp,
+ * persisting both to SecureStore.
+ */
+export async function recordFailedPinAttempt(): Promise<{
+  failedAttempts: number;
+  lockoutSeconds: number;
+  lockoutUntil: number | null;
+}> {
+  const currentAttempts = await getFailedPinAttempts();
+  const nextAttempts = currentAttempts + 1;
+  const lockoutSeconds = getLockoutDurationSeconds(nextAttempts);
+  const now = Date.now();
+  const lockoutUntil = lockoutSeconds > 0 ? now + lockoutSeconds * 1000 : null;
+
+  await saveSecureItem(PIN_FAILED_ATTEMPTS_STORAGE_KEY, String(nextAttempts));
+  if (lockoutUntil !== null) {
+    await saveSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY, String(lockoutUntil));
+  } else {
+    await deleteSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY);
+  }
+
+  return {
+    failedAttempts: nextAttempts,
+    lockoutSeconds,
+    lockoutUntil,
+  };
+}
 
 let vaultLocked = true;
 
@@ -144,21 +236,46 @@ export async function validateDuressPin(duressPin: string): Promise<boolean> {
 export type PinAuthResult =
   | { type: 'primary' }
   | { type: 'duress' }
-  | { type: 'invalid' };
+  | { type: 'invalid' }
+  | { type: 'locked'; remainingSeconds: number };
 
 /**
  * Authenticates an entered PIN and determines whether it corresponds to the primary PIN,
- * the secondary Duress PIN, or is invalid.
+ * the secondary Duress PIN, or is invalid / locked out.
+ *
+ * Rules:
+ * - Entering a valid Duress PIN never increments the failed attempt counter or leaves any visible lockout artifacts.
+ * - If locked out, primary PIN entry is throttled until the timer expires.
+ * - Failed attempts trigger the progressive backoff ladder:
+ *   - 1-4 attempts: Standard invalid message.
+ *   - 5 attempts: 30-second lockout.
+ *   - 6 attempts: 2-minute lockout.
+ *   - 7+ attempts: Exponential delay (5m, 15m, 30m).
  */
 export async function authenticatePin(pin: string): Promise<PinAuthResult> {
-  const isPrimary = await validatePin(pin);
-  if (isPrimary) {
-    return { type: 'primary' };
-  }
-
+  // 1. Duress isolation: valid Duress PIN never increments counter or leaves lockout artifacts
   const isDuress = await validateDuressPin(pin);
   if (isDuress) {
     return { type: 'duress' };
+  }
+
+  // 2. Check if currently locked out
+  const remainingLockout = await getLockoutRemainingSeconds();
+  if (remainingLockout > 0) {
+    return { type: 'locked', remainingSeconds: remainingLockout };
+  }
+
+  // 3. Primary PIN verification
+  const isPrimary = await validatePin(pin);
+  if (isPrimary) {
+    await resetPinLockout();
+    return { type: 'primary' };
+  }
+
+  // 4. Record failed attempt and engage backoff if threshold met
+  const { lockoutSeconds } = await recordFailedPinAttempt();
+  if (lockoutSeconds > 0) {
+    return { type: 'locked', remainingSeconds: lockoutSeconds };
   }
 
   return { type: 'invalid' };
@@ -166,15 +283,22 @@ export async function authenticatePin(pin: string): Promise<PinAuthResult> {
 
 /**
  * Unlocks the vault using the user PIN.
- * On success, unlocks the vault, loads the master key into active memory, and returns true.
- * On failure, remains locked and returns false.
+ * On success, unlocks the vault, loads the master key into active memory, resets failed attempts, and returns true.
+ * On failure or active lockout, remains locked and returns false.
  */
 export async function unlockWithPin(pin: string): Promise<boolean> {
-  const isValid = await validatePin(pin);
-  if (!isValid) {
+  const remainingLockout = await getLockoutRemainingSeconds();
+  if (remainingLockout > 0) {
     return false;
   }
 
+  const isValid = await validatePin(pin);
+  if (!isValid) {
+    await recordFailedPinAttempt();
+    return false;
+  }
+
+  await resetPinLockout();
   await loadMasterKey();
   vaultLocked = false;
   return true;
@@ -223,6 +347,7 @@ export async function changePin(
 
   const newRecord = await hashPin(newPin, undefined, iterations);
   await saveSecureItem(PIN_AUTH_STORAGE_KEY, JSON.stringify(newRecord));
+  await resetPinLockout();
   return true;
 }
 
@@ -268,5 +393,6 @@ export async function resetSecurity(): Promise<void> {
   lockVault();
   await deleteSecureItem(PIN_AUTH_STORAGE_KEY);
   await deleteSecureItem(DURESS_PIN_STORAGE_KEY);
+  await resetPinLockout();
   await deleteMasterKey();
 }

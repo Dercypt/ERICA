@@ -34,6 +34,8 @@ import {
   getSecureItem,
   PIN_AUTH_STORAGE_KEY,
   DURESS_PIN_STORAGE_KEY,
+  isPinLockedOut,
+  resetPinLockout,
 } from '../src/features/security';
 
 test.beforeEach(async () => {
@@ -208,9 +210,14 @@ test('Task 1.5: Adversary Brute-Force Simulation: Rapid unauthorized guessing gu
     );
   }
 
-  // Legitimate user enters correct PIN after adversary brute-force sequence
+  // Device must now be locked out due to progressive backoff ladder
+  assert.strictEqual(await isPinLockedOut(), true, 'Rapid dictionary attack must engage lockout');
+  assert.strictEqual(await unlockWithPin(correctPin), false, 'Unlock must be blocked during active lockout');
+
+  // Once lockout expires or is reset, legitimate user can unlock
+  await resetPinLockout();
   const legitUnlock = await unlockWithPin(correctPin);
-  assert.strictEqual(legitUnlock, true, 'Correct PIN must unlock successfully');
+  assert.strictEqual(legitUnlock, true, 'Correct PIN must unlock successfully once lockout cleared');
   assert.strictEqual(isVaultLocked(), false, 'Vault must now be unlocked');
   assert.strictEqual(isMasterKeyLoaded(), true, 'Master key loaded for authorized user');
   assert.strictEqual(getActiveMasterKey().length, 32, 'Master key is 256 bits');

@@ -47,6 +47,14 @@ import {
   changeDuressPin,
   removeDuressPin,
   authenticatePin,
+  getLockoutDurationSeconds,
+  getFailedPinAttempts,
+  getLockoutRemainingSeconds,
+  isPinLockedOut,
+  resetPinLockout,
+  recordFailedPinAttempt,
+  PIN_FAILED_ATTEMPTS_STORAGE_KEY,
+  PIN_LOCKOUT_UNTIL_STORAGE_KEY,
 } from '../src/features/security';
 
 test.beforeEach(() => {
@@ -384,4 +392,136 @@ test('12. Secondary Duress PIN: Change, collision guards, and removal', async ()
   await resetSecurity();
   assert.strictEqual(await isPinConfigured(), false);
   assert.strictEqual(await isDuressPinConfigured(), false);
+});
+
+test('13. Progressive Backoff Ladder & Hardware SecureStore Lockout Persistence', async () => {
+  // Test mathematical backoff ladder helper
+  assert.strictEqual(getLockoutDurationSeconds(0), 0);
+  assert.strictEqual(getLockoutDurationSeconds(1), 0);
+  assert.strictEqual(getLockoutDurationSeconds(4), 0);
+  assert.strictEqual(getLockoutDurationSeconds(5), 30);
+  assert.strictEqual(getLockoutDurationSeconds(6), 120);
+  assert.strictEqual(getLockoutDurationSeconds(7), 300);
+  assert.strictEqual(getLockoutDurationSeconds(8), 900);
+  assert.strictEqual(getLockoutDurationSeconds(9), 1800);
+  assert.strictEqual(getLockoutDurationSeconds(15), 1800);
+
+  // Setup primary PIN
+  await setupPin('123456', 1_000);
+  lockVault();
+
+  // Failed attempts 1 to 4: standard invalid message, 0 lockout
+  for (let i = 1; i <= 4; i++) {
+    const res = await authenticatePin('000000');
+    assert.deepStrictEqual(res, { type: 'invalid' });
+    assert.strictEqual(await getFailedPinAttempts(), i);
+    assert.strictEqual(await isPinLockedOut(), false);
+    assert.strictEqual(await getLockoutRemainingSeconds(), 0);
+  }
+
+  // Attempt 5: 30-second lockout
+  const attempt5 = await authenticatePin('000000');
+  assert.strictEqual(attempt5.type, 'locked');
+  if (attempt5.type === 'locked') {
+    assert.ok(attempt5.remainingSeconds <= 30 && attempt5.remainingSeconds >= 29);
+  }
+  assert.strictEqual(await getFailedPinAttempts(), 5);
+  assert.strictEqual(await isPinLockedOut(), true);
+  assert.ok((await getLockoutRemainingSeconds()) > 0);
+
+  // While locked out, entering primary PIN is blocked
+  const blockedAttempt = await authenticatePin('123456');
+  assert.strictEqual(blockedAttempt.type, 'locked');
+  assert.strictEqual(isVaultLocked(), true);
+
+  // Persist attempt counts and lockout expiration timestamps in SecureStore
+  const storedAttempts = await getSecureItem(PIN_FAILED_ATTEMPTS_STORAGE_KEY);
+  assert.strictEqual(storedAttempts, '5');
+  const storedUntil = await getSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY);
+  assert.ok(storedUntil !== null);
+  assert.ok(parseInt(storedUntil!, 10) > Date.now());
+
+  // Simulate app reboot / reload (reading persisted SecureStore record)
+  // Lockout timer cannot be cleared by reboot
+  const remainingAfterReboot = await getLockoutRemainingSeconds();
+  assert.ok(remainingAfterReboot > 0, 'App reboot cannot clear active lockout timer');
+
+  // Simulate lockout duration expiration by advancing stored lockoutUntil
+  await saveSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY, String(Date.now() - 1000));
+  assert.strictEqual(await isPinLockedOut(), false);
+  assert.strictEqual(await getLockoutRemainingSeconds(), 0);
+
+  // Attempt 6 (after 30s elapsed): 2-minute lockout (120s)
+  const attempt6 = await authenticatePin('000000');
+  assert.strictEqual(attempt6.type, 'locked');
+  if (attempt6.type === 'locked') {
+    assert.ok(attempt6.remainingSeconds <= 120 && attempt6.remainingSeconds >= 118);
+  }
+  assert.strictEqual(await getFailedPinAttempts(), 6);
+
+  // Simulate lockout expiration
+  await saveSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY, String(Date.now() - 1000));
+
+  // Attempt 7: 5-minute lockout (300s)
+  const attempt7 = await authenticatePin('000000');
+  assert.strictEqual(attempt7.type, 'locked');
+  if (attempt7.type === 'locked') {
+    assert.ok(attempt7.remainingSeconds <= 300 && attempt7.remainingSeconds >= 298);
+  }
+  assert.strictEqual(await getFailedPinAttempts(), 7);
+
+  // Simulate lockout expiration
+  await saveSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY, String(Date.now() - 1000));
+
+  // Attempt 8: 15-minute lockout (900s)
+  const attempt8 = await authenticatePin('000000');
+  assert.strictEqual(attempt8.type, 'locked');
+  if (attempt8.type === 'locked') {
+    assert.ok(attempt8.remainingSeconds <= 900 && attempt8.remainingSeconds >= 898);
+  }
+
+  // Simulate lockout expiration
+  await saveSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY, String(Date.now() - 1000));
+
+  // Attempt 9+: 30-minute lockout (1800s)
+  const attempt9 = await authenticatePin('000000');
+  assert.strictEqual(attempt9.type, 'locked');
+  if (attempt9.type === 'locked') {
+    assert.ok(attempt9.remainingSeconds <= 1800 && attempt9.remainingSeconds >= 1798);
+  }
+
+  // Simulate lockout expiration
+  await saveSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY, String(Date.now() - 1000));
+
+  // Valid primary PIN entry resets counter and clears lockout in SecureStore
+  const successfulUnlock = await authenticatePin('123456');
+  assert.deepStrictEqual(successfulUnlock, { type: 'primary' });
+  assert.strictEqual(await getFailedPinAttempts(), 0);
+  assert.strictEqual(await isPinLockedOut(), false);
+  assert.strictEqual(await getSecureItem(PIN_FAILED_ATTEMPTS_STORAGE_KEY), null);
+  assert.strictEqual(await getSecureItem(PIN_LOCKOUT_UNTIL_STORAGE_KEY), null);
+});
+
+test('14. Duress Isolation & Lockout Bypass: Duress PIN never increments failed counter or leaves lockout artifacts', async () => {
+  await setupPin('123456', 1_000);
+  await setupDuressPin('654321', 1_000);
+  lockVault();
+
+  // Adversary enters 5 wrong guesses triggering 30s lockout
+  for (let i = 0; i < 5; i++) {
+    await authenticatePin('000000');
+  }
+  assert.strictEqual(await isPinLockedOut(), true);
+  assert.strictEqual(await getFailedPinAttempts(), 5);
+
+  // Victim is coerced to unlock and enters valid Duress PIN '654321'
+  const duressResult = await authenticatePin('654321');
+  assert.deepStrictEqual(duressResult, { type: 'duress' }, 'Valid duress PIN must bypass lockout');
+
+  // Failed counter MUST NOT be incremented
+  assert.strictEqual(await getFailedPinAttempts(), 5, 'Duress PIN must not increment failed attempts counter');
+
+  // Vault remains securely locked
+  assert.strictEqual(isVaultLocked(), true);
+  assert.strictEqual(isMasterKeyLoaded(), false);
 });
