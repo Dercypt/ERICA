@@ -10,8 +10,12 @@ const mockReactNativeUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockR
 const mockLocationUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockLocation.mjs')).href;
 const mockNetInfoUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockNetInfo.mjs')).href;
 const mockComponentUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockComponent.mjs')).href;
+const mockSmsUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockSms.mjs')).href;
 
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier === 'expo-sms') {
+    return nextResolve(mockSmsUrl, context);
+  }
   if (specifier.endsWith('.tsx')) {
     return nextResolve(mockComponentUrl, context);
   }
