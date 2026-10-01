@@ -163,9 +163,9 @@ Complete Android native project generated and configured for custom permissions 
 - `android/settings.gradle`: Native module project links.
 - `android/app/proguard-rules.pro`: ProGuard / R8 code shrinking and optimization rules.
 - `android/app/src/main/AndroidManifest.xml`: Permissions declaration (`SEND_SMS`, `ACCESS_FINE_LOCATION`, `FOREGROUND_SERVICE`, `RECEIVE_BOOT_COMPLETED`, `WAKE_LOCK`).
-- `android/app/src/main/java/com/erica/sos/EricaBootReceiver.kt`: `BroadcastReceiver` waking outbox queue worker immediately on `ACTION_BOOT_COMPLETED`.
+- `modules/foreground-service/android/src/main/java/expo/modules/foregroundservice/EricaBootReceiver.kt`: `BroadcastReceiver` waking outbox queue worker immediately on `ACTION_BOOT_COMPLETED`.
 - `android/app/src/main/java/com/erica/sos/MainActivity.kt` & `MainApplication.kt`: Android application entry and React Native initialization.
-- `android/app/src/main/res/xml/accessibility_service_config.xml`: Accessibility service configuration for key event interception.
+- `modules/physical-triggers/android/src/main/res/xml/erica_accessibility_service_config.xml`: Accessibility service configuration for key event interception.
 - `android/app/src/main/res/`: Resources, themes, icons, and splash assets.
 
 ---
