@@ -17,6 +17,9 @@ const ERICA_PERMISSIONS = [
   'android.permission.POST_NOTIFICATIONS',
   'android.permission.USE_BIOMETRIC',
   'android.permission.USE_FINGERPRINT',
+  'android.permission.CAMERA',
+  'android.permission.FLASHLIGHT',
+  'android.permission.RECORD_AUDIO',
 ];
 
 /**
