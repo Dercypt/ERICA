@@ -191,6 +191,36 @@ export class ShakeDetectorEngine {
   }
 
   /**
+   * Records a jerk spike (already known to exceed the threshold) and applies the
+   * debounce / reversal-window / cooldown rules. Returns true when the pattern completes.
+   * Used directly by the live calibration test, which receives spikes from the native
+   * sensor rather than raw accelerometer samples.
+   */
+  registerSpike(timestampMs: number = Date.now()): boolean {
+    if (!this.enabled) {
+      return false;
+    }
+    const inCooldown = timestampMs - this.lastTriggerTimeMs < this.cooldownMs;
+    const debounced = timestampMs - this.lastShakeTimeMs >= this.minShakeIntervalMs;
+    if (inCooldown || !debounced) {
+      return false;
+    }
+
+    this.lastShakeTimeMs = timestampMs;
+    const windowCutoff = timestampMs - this.shakeWindowMs;
+    this.shakeTimestamps = this.shakeTimestamps.filter((t) => t >= windowCutoff);
+    this.shakeTimestamps.push(timestampMs);
+
+    if (this.shakeTimestamps.length >= this.minShakes) {
+      this.shakeTimestamps = [];
+      this.lastTriggerTimeMs = timestampMs;
+      this.onTriggerCallback?.('Shake Detector');
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Processes an incoming 3-axis accelerometer sample.
    * Acceleration is expected in m/s^2 (with gravity ~9.8 m/s^2).
    */
@@ -236,26 +266,7 @@ export class ShakeDetectorEngine {
     this.lastLinear = { x: linearX, y: linearY, z: linearZ };
 
     const isSpike = currentJerk >= this.jerkThreshold;
-    let isTriggered = false;
-
-    if (this.enabled && isSpike) {
-      const inCooldown = timestampMs - this.lastTriggerTimeMs < this.cooldownMs;
-      const debounced = timestampMs - this.lastShakeTimeMs >= this.minShakeIntervalMs;
-
-      if (!inCooldown && debounced) {
-        this.lastShakeTimeMs = timestampMs;
-        const windowCutoff = timestampMs - this.shakeWindowMs;
-        this.shakeTimestamps = this.shakeTimestamps.filter((t) => t >= windowCutoff);
-        this.shakeTimestamps.push(timestampMs);
-
-        if (this.shakeTimestamps.length >= this.minShakes) {
-          this.shakeTimestamps = [];
-          this.lastTriggerTimeMs = timestampMs;
-          isTriggered = true;
-          this.onTriggerCallback?.('Shake Detector');
-        }
-      }
-    }
+    const isTriggered = isSpike && this.registerSpike(timestampMs);
 
     return {
       timestamp: timestampMs,

@@ -21,8 +21,6 @@ import {
   startShakeSensitivityTest,
   stopShakeSensitivityTest,
   addShakeTestListener,
-  simulateVolumePress,
-  simulateShake,
   type ShakeTestSample,
   VolumePatternEngine,
   ShakeDetectorEngine,
@@ -347,8 +345,10 @@ export function SettingsScreen() {
   useEffect(() => {
     const sub = addShakeTestListener((sample: ShakeTestSample) => {
       if (isShakeTesting) {
-        setCurrentJerk(sample.currentJerk);
-        if (sample.isTriggered) {
+        setCurrentJerk(Math.round(sample.currentJerk * 100) / 100);
+        // The native sensor reports spikes only (it never sets isTriggered), so run the
+        // reversal/window rules locally to tell the user whether the pattern would fire.
+        if (sample.isSpike && shakeEngineRef.current.registerSpike(sample.timestamp)) {
           setShakeTestSuccess(true);
           setTimeout(() => setShakeTestSuccess(false), 2500);
         }
@@ -379,8 +379,9 @@ export function SettingsScreen() {
     setSettings((s) => ({ ...s, volumeWindowSeconds: seconds }));
   };
 
+  // Rehearsal only drives the local engine. The previous version also called the global
+  // simulateVolumePress(), which fed the armed detectors and started a real SOS.
   const handleTestVolumePress = () => {
-    simulateVolumePress().catch(() => {});
     const triggered = volumeEngineRef.current.onPress(Date.now(), false);
     const activeCount = volumeEngineRef.current.getActivePressCount();
     setVolumeTestPresses(activeCount);
@@ -435,8 +436,8 @@ export function SettingsScreen() {
     }
   };
 
+  // Same as above: never route simulated shakes into the armed global detectors.
   const handleSimulateShake = () => {
-    simulateShake(shakeThreshold + 15).catch(() => {});
     const now = Date.now();
     shakeEngineRef.current.processSample(0, 0, 9.8, now);
     shakeEngineRef.current.processSample(shakeThreshold * 0.06, 0, 9.8, now + 50);
@@ -993,8 +994,8 @@ export function SettingsScreen() {
             <View style={styles.testBox}>
               <Text style={styles.testBoxTitle}>Volume Pattern Sensitivity Test</Text>
               <Text style={styles.testBoxSubtitle}>
-                Press physical volume buttons or tap simulate below. In test mode, no alert will be dispatched to
-                contacts.
+                Tap Simulate Press to rehearse the rhythm. Simulated presses never dispatch an alert. Physical
+                volume presses are live whenever the trigger is enabled and saved.
               </Text>
 
               <View style={styles.testProgressRow}>
