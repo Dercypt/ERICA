@@ -3,6 +3,7 @@ import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { clearHistory, getHistory, type HistoryEntry } from './historyStorage';
+import { getEvidence, clearEvidence, type EvidenceRecord } from '../evidence';
 
 function formatDate(ms: number) {
   return new Date(ms).toLocaleString();
@@ -10,16 +11,27 @@ function formatDate(ms: number) {
 
 export function HistoryScreen() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [evidenceMap, setEvidenceMap] = useState<Record<string, EvidenceRecord[]>>({});
 
   const load = useCallback(() => {
     getHistory().then(setHistory);
+    getEvidence().then((evList) => {
+      const map: Record<string, EvidenceRecord[]> = {};
+      evList.forEach((ev) => {
+        if (!map[ev.sessionId]) map[ev.sessionId] = [];
+        map[ev.sessionId].push(ev);
+      });
+      setEvidenceMap(map);
+    });
   }, []);
 
   useFocusEffect(load);
 
   const onClear = async () => {
     await clearHistory();
+    await clearEvidence();
     setHistory([]);
+    setEvidenceMap({});
   };
 
   return (
@@ -36,19 +48,32 @@ export function HistoryScreen() {
         data={history}
         keyExtractor={(h) => h.sessionId}
         ListEmptyComponent={<Text style={styles.empty}>No emergencies logged yet.</Text>}
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <View style={styles.rowHeader}>
-              <Text style={styles.source}>{item.triggerSource}</Text>
-              <Text style={[styles.statusBadge, item.resolvedAt ? styles.resolved : styles.active]}>
-                {item.resolvedAt ? 'Resolved' : 'Active / Pending'}
-              </Text>
+        renderItem={({ item }) => {
+          const sessionEvidence = evidenceMap[item.sessionId] || [];
+          const audioCount = sessionEvidence.filter((e) => e.type === 'audio').length;
+          const photoCount = sessionEvidence.filter((e) => e.type === 'photo').length;
+
+          return (
+            <View style={styles.row}>
+              <View style={styles.rowHeader}>
+                <Text style={styles.source}>{item.triggerSource}</Text>
+                <Text style={[styles.statusBadge, item.resolvedAt ? styles.resolved : styles.active]}>
+                  {item.resolvedAt ? 'Resolved' : 'Active / Pending'}
+                </Text>
+              </View>
+              <Text style={styles.detail}>Started: {formatDate(item.startedAt)}</Text>
+              {item.resolvedAt ? <Text style={styles.detail}>Resolved: {formatDate(item.resolvedAt)}</Text> : null}
+              <Text style={styles.detail}>{item.locationCaptured ? '✓ Location captured' : '✗ Location unavailable'}</Text>
+              {sessionEvidence.length > 0 ? (
+                <View style={styles.evidenceContainer}>
+                  <Text style={styles.evidenceBadge}>
+                    🔒 Encrypted Evidence: {audioCount > 0 ? 'Audio ' : ''}{photoCount > 0 ? `${photoCount} Photo(s)` : ''}
+                  </Text>
+                </View>
+              ) : null}
             </View>
-            <Text style={styles.detail}>Started: {formatDate(item.startedAt)}</Text>
-            {item.resolvedAt ? <Text style={styles.detail}>Resolved: {formatDate(item.resolvedAt)}</Text> : null}
-            <Text style={styles.detail}>{item.locationCaptured ? '✓ Location captured' : '✗ Location unavailable'}</Text>
-          </View>
-        )}
+          );
+        }}
       />
     </SafeAreaView>
   );
@@ -68,5 +93,16 @@ const styles = StyleSheet.create({
   resolved: { color: '#4CD964', backgroundColor: 'rgba(76, 217, 100, 0.15)' },
   active: { color: '#FF9500', backgroundColor: 'rgba(255, 149, 0, 0.15)' },
   detail: { color: '#8E8E93', fontSize: 13, marginTop: 2 },
+  evidenceContainer: { marginTop: 6 },
+  evidenceBadge: {
+    color: '#4EBA6F',
+    backgroundColor: '#1B3B22',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+    overflow: 'hidden',
+  },
 });
-
