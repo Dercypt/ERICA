@@ -1,5 +1,6 @@
 package expo.modules.foregroundservice
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,12 +8,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 
 /**
  * Minimal Android ForegroundService for ERICA.
@@ -142,17 +145,11 @@ class EmergencyForegroundService : Service() {
         val notification = buildNotification(title, message)
 
         if (!isServiceRunning) {
-          try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-              startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-            } else {
-              startForeground(NOTIFICATION_ID, notification)
-            }
-          } catch (e: Exception) {
-            Log.e(TAG, "startForeground with location type failed, retrying without type", e)
-            startForeground(NOTIFICATION_ID, notification)
+          isServiceRunning = startInForeground(notification)
+          if (!isServiceRunning) {
+            stopSelf()
+            return START_NOT_STICKY
           }
-          isServiceRunning = true
         } else {
           val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
           nm.notify(NOTIFICATION_ID, notification)
@@ -161,6 +158,49 @@ class EmergencyForegroundService : Service() {
       }
 
       else -> return START_STICKY
+    }
+  }
+
+  private fun hasLocationPermission(): Boolean {
+    return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+      PackageManager.PERMISSION_GRANTED ||
+      ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+      PackageManager.PERMISSION_GRANTED
+  }
+
+  /**
+   * Promotes the service to the foreground with a type the OS will accept.
+   *
+   * Android 14+ throws SecurityException for a location-type service unless location
+   * permission is already granted. The old fallback retried with no explicit type, which
+   * resolves to the manifest's location type and threw again, crashing the app mid-SOS.
+   * Without location permission we now use specialUse (declared in the manifest).
+   */
+  private fun startInForeground(notification: Notification): Boolean {
+    val types = mutableListOf<Int>()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      if (hasLocationPermission()) types.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+      types.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      types.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      for (type in types) {
+        try {
+          startForeground(NOTIFICATION_ID, notification, type)
+          return true
+        } catch (e: Exception) {
+          Log.e(TAG, "startForeground failed for type $type", e)
+        }
+      }
+    }
+    return try {
+      startForeground(NOTIFICATION_ID, notification)
+      true
+    } catch (e: Exception) {
+      Log.e(TAG, "startForeground failed; emergency notification unavailable", e)
+      false
     }
   }
 

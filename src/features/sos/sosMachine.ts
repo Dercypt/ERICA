@@ -1,4 +1,5 @@
 import { setup, assign, fromPromise, fromCallback, createActor } from 'xstate';
+import { useCallback } from 'react';
 import { useSelector } from '@xstate/react';
 import { getContacts } from '../contacts/contactsStorage';
 import { getSettings } from '../settings/settingsStorage';
@@ -51,7 +52,13 @@ const countdownTicker = fromCallback(({ sendBack }) => {
 
 const loadSettings = fromPromise(async () => getSettings());
 
-const dispatchEmergency = fromPromise(async ({ input }: { input: { context: SosContext } }) => {
+const SMS_UNAVAILABLE_WARNING =
+  'SMS permission is missing or this device cannot send SMS right now. Your alert is queued and will send automatically once SMS is available.';
+
+const dispatchEmergency = fromPromise(async ({ input }: { input: { context: SosContext } }): Promise<{
+  location: LocationResult | null;
+  warning?: string | null;
+}> => {
   const { context } = input;
 
   // Defensive wrap around contact decryption (Non-Negotiable Safety Law)
@@ -104,15 +111,16 @@ const dispatchEmergency = fromPromise(async ({ input }: { input: { context: SosC
     throw new Error('SMS service is unavailable on this device.');
   }
 
+  // The alert is already queued; a failed history write must not report the SOS as failed.
   await appendHistoryEntry({
     sessionId: context.sessionId as string,
     triggerSource: context.triggerSource,
     startedAt: context.startedAt as number,
     resolvedAt: null,
     locationCaptured: location !== null,
-  });
+  }).catch((err) => console.warn('[sosMachine] Failed to log history entry:', err));
 
-  return { location };
+  return { location, warning: result.smsAvailable === false ? SMS_UNAVAILABLE_WARNING : null };
 });
 
 const dispatchSafe = fromPromise(async ({ input }: { input: { context: SosContext } }) => {
@@ -244,7 +252,7 @@ export const sosMachine = setup({
         onDone: {
           target: 'active',
           actions: [
-            assign(({ event }) => ({ location: event.output.location })),
+            assign(({ event }) => ({ location: event.output.location, lastError: event.output.warning ?? null })),
             'updateActiveNotification',
             'releaseWakeLock',
           ],
@@ -322,6 +330,9 @@ export function resetSosService(): void {
 export function useSosService() {
   const service = getSosService();
   const snapshot = useSelector(service, (s) => s);
-  return [snapshot, (event: SosEvent) => service.send(event)] as const;
+  // Stable identity: a fresh closure per render re-ran every effect depending on `send`
+  // once a second during the countdown.
+  const send = useCallback((event: SosEvent) => service.send(event), [service]);
+  return [snapshot, send] as const;
 }
 

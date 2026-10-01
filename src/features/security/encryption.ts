@@ -38,6 +38,15 @@ export interface EncryptedEnvelope {
 }
 
 /**
+ * True when `err` means the ciphertext can never be decrypted with the current key
+ * (authentication tag mismatch: wrong key or tampering), as opposed to a transient
+ * failure such as the key store being briefly unavailable.
+ */
+export function isDecryptionFailure(err: unknown): boolean {
+  return err instanceof Error && err.message.startsWith('Decryption failed');
+}
+
+/**
  * Checks if an object conforms to the EncryptedEnvelope interface.
  */
 export function isEncryptedEnvelope(obj: unknown): obj is EncryptedEnvelope {

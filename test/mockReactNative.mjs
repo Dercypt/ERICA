@@ -17,6 +17,9 @@ export const AppState = {
       listener(newState);
     }
   },
+  _listenerCount() {
+    return listeners.size;
+  },
   _reset() {
     this.currentState = 'active';
     listeners.clear();

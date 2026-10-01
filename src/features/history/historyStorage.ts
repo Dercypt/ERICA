@@ -4,6 +4,7 @@ import {
   decryptString,
   isEncryptedPayload,
 } from '../security/encryption';
+import { DecryptionFailedError } from '../contacts/contactsStorage';
 
 export interface HistoryEntry {
   sessionId: string;
@@ -51,13 +52,33 @@ async function saveHistory(history: HistoryEntry[]): Promise<void> {
   await AsyncStorage.setItem(STORAGE_KEY, encrypted);
 }
 
+/**
+ * Loads history before a read-modify-write. getHistory() returns [] when the stored log
+ * cannot be decrypted, and writing on top of that silently destroyed every entry; here
+ * the write is refused instead, so the encrypted log is never overwritten.
+ */
+async function loadHistoryForWrite(): Promise<HistoryEntry[]> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEY);
+  if (!raw || !isEncryptedPayload(raw)) {
+    return await getHistory();
+  }
+  try {
+    return JSON.parse(await decryptString(raw)) as HistoryEntry[];
+  } catch (err) {
+    throw new DecryptionFailedError(
+      'Decryption failed: Unable to decrypt emergency history. Refusing to overwrite it.',
+      err
+    );
+  }
+}
+
 export async function appendHistoryEntry(entry: HistoryEntry): Promise<void> {
-  const history = await getHistory();
+  const history = await loadHistoryForWrite();
   await saveHistory([entry, ...history]);
 }
 
 export async function resolveHistoryEntry(sessionId: string, resolvedAt: number): Promise<void> {
-  const history = await getHistory();
+  const history = await loadHistoryForWrite();
   const updated = history.map((h) => (h.sessionId === sessionId ? { ...h, resolvedAt } : h));
   await saveHistory(updated);
 }

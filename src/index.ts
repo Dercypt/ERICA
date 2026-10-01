@@ -3,6 +3,7 @@ export * from './features/contacts';
 export * from './features/dispatch';
 export * from './features/history';
 export * from './features/location';
+export * from './features/permissions';
 export * from './features/security';
 export * from './features/settings';
 export * from './features/sos';

@@ -38,19 +38,6 @@ class MainActivity : ReactActivity() {
     handleIncomingIntent(intent)
   }
 
-  override fun onNewIntent(intent: android.content.Intent) {
-    super.onNewIntent(intent)
-    setIntent(intent)
-    handleIncomingIntent(intent)
-  }
-
-  private fun handleIncomingIntent(intent: android.content.Intent?) {
-    val panicSource = intent?.getStringExtra("extra_panic_trigger")
-    if (!panicSource.isNullOrEmpty()) {
-      expo.modules.physicaltriggers.PhysicalTriggersModule.sendPanicEvent(panicSource)
-    }
-  }
-
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule
    * rendering of the component.
@@ -89,6 +76,19 @@ class MainActivity : ReactActivity() {
       // Use the default back button implementation on Android S
       // because it's doing more than [Activity.moveTaskToBack] in fact.
       super.invokeDefaultOnBackPressed()
+  }
+
+  override fun onNewIntent(intent: android.content.Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    handleIncomingIntent(intent)
+  }
+
+  private fun handleIncomingIntent(intent: android.content.Intent?) {
+    val panicSource = intent?.getStringExtra("extra_panic_trigger")
+    if (!panicSource.isNullOrEmpty()) {
+      expo.modules.physicaltriggers.PhysicalTriggersModule.sendPanicEvent(panicSource)
+    }
   }
 
   /**

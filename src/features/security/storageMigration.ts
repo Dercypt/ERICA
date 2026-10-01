@@ -7,7 +7,7 @@
  *   - Emergency history logs (@erica/history in AsyncStorage)
  *   - Outbox queue payloads in SQLite
  * - Re-encrypts all records with the hardware-backed AES-256 master key.
- * - Securely purges plaintext records from AsyncStorage (zero-overwrite before replacing).
+ * - Replaces each plaintext record with its ciphertext in a single atomic write.
  * - Idempotent, durable, and atomic execution.
  */
 
@@ -44,19 +44,6 @@ export async function isStorageMigrationComplete(): Promise<boolean> {
 }
 
 /**
- * Securely purges a plaintext value from AsyncStorage by overwriting with zeroes
- * prior to removing and replacing with authenticated ciphertext.
- */
-async function securePurgeAndReplace(key: string, rawPlaintextLength: number, ciphertext: string): Promise<void> {
-  // Overwrite storage block with zeroes to scrub flash/disk remnants
-  await AsyncStorage.setItem(key, '0'.repeat(Math.max(rawPlaintextLength, 32)));
-  // Remove temporary scrub block
-  await AsyncStorage.removeItem(key);
-  // Persist authenticated ciphertext
-  await AsyncStorage.setItem(key, ciphertext);
-}
-
-/**
  * Executes the safe, automated one-time migration from Phase 1/2 plaintext
  * storage to authenticated AES-256-GCM ciphertext.
  */
@@ -90,7 +77,8 @@ export async function runStorageMigration(options?: {
       const parsed = JSON.parse(rawContacts);
       if (Array.isArray(parsed)) {
         const encrypted = await encryptString(rawContacts);
-        await securePurgeAndReplace(CONTACTS_STORAGE_KEY, rawContacts.length, encrypted);
+        // Single write: removing first and writing after left a window where a crash lost the data.
+        await AsyncStorage.setItem(CONTACTS_STORAGE_KEY, encrypted);
         contactsMigrated = true;
       }
     }
@@ -106,7 +94,7 @@ export async function runStorageMigration(options?: {
       const parsed = JSON.parse(rawHistory);
       if (Array.isArray(parsed)) {
         const encrypted = await encryptString(rawHistory);
-        await securePurgeAndReplace(HISTORY_STORAGE_KEY, rawHistory.length, encrypted);
+        await AsyncStorage.setItem(HISTORY_STORAGE_KEY, encrypted);
         historyMigrated = true;
       }
     }

@@ -64,10 +64,16 @@ class ForegroundServiceModule : Module() {
 
     AsyncFunction("stopService") { promise: Promise ->
       try {
-        val intent = Intent(context, EmergencyForegroundService::class.java).apply {
-          action = EmergencyForegroundService.ACTION_STOP
+        // The SOS machine calls this on every entry to idle, including app start. Starting
+        // a stopped service just to stop it is wasteful and throws when backgrounded.
+        if (EmergencyForegroundService.isServiceRunning) {
+          val intent = Intent(context, EmergencyForegroundService::class.java).apply {
+            action = EmergencyForegroundService.ACTION_STOP
+          }
+          context.startService(intent)
+        } else {
+          EmergencyForegroundService.releaseWakeLock()
         }
-        context.startService(intent)
         promise.resolve(true)
       } catch (e: Throwable) {
         Log.e(TAG, "Failed to stop EmergencyForegroundService", e)
