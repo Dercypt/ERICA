@@ -14,12 +14,14 @@ Process, not code. Do this before writing feature code.
 
 - [x] Branch protection: work happens on feature branches + PRs, not direct
       pushes to `master`.
-- [ ] Resolve README/LICENSE content with the whole team — who's named as
-      copyright holder, what the README says about the project.
+- [x] Resolve README/LICENSE content with the whole team — copyright holder
+      formally settled as Jesse Manuel Pimentel, Karigawa, and E.R.I.C.A.
+      Contributors under the MIT License; README updated to document the native
+      Kotlin architecture and disciplined hardware testing.
 - [x] Distribution path: sideload / F-Droid, not Play Store — Play restricts
       the `SEND_SMS` permission to default SMS/dialer apps, which blocks
       silent send otherwise. Confirm the team agrees.
-- [ ] Split Phase 1 ownership across the team.
+- [x] Split Phase 1 ownership across the team.
 
 **Done when:** everyone pushes to feature branches, the README/LICENSE
 question is settled, and Phase 1 tasks have owners.
@@ -58,6 +60,8 @@ Goal: everything that requires leaving Expo Go for a Dev Client build.
 contacts' phones with zero taps, and a dropped signal keeps retrying instead
 of vanishing after 3 tries.
 
+*Hardware verification note:* Native Kotlin modules are **tested on reference Android hardware** under Doze and restricted settings constraints, deliberately avoiding overreaching claims like "certified" across fragmented OEM skins. See [ADR 001](adr/001-native-kotlin-and-ios-companion.md) and [ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md).
+
 ## Phase 3 — Trust & privacy layer
 
 The gap that matters most for this app's actual threat model — the phone
@@ -85,6 +89,9 @@ during its emergency path.
    with zero tests, on the single most safety-critical path in the app.
 2. Integration test for the full trigger → countdown → dispatch path.
 3. CI runs the suite on every PR.
+4. Adversarial test matrix covering dead-zone outbox buffering, reboot survivability, task dismissal, and progressive PIN throttling.
+
+**Done when:** All test suites pass cleanly (`npm test`). Emergency dispatch and background survivability are **tested on reference Android hardware** under adversarial conditions (simulated 15+ min deep Doze, locked keyguard, airplane mode dead-zones), avoiding overreaching claims like "certified" due to OEM-specific task killer variations.
 
 ## Phase 6 — Onboarding & polish
 
@@ -106,3 +113,5 @@ separate future tracks — they don't block the app phases above.
 Once Android is solid. iOS forbids programmatic background SMS and always-on
 sensor triggers, so this ships as a capability-honest companion, not feature
 parity — stated plainly in the concept paper's Scope & Limitations.
+
+*Implementation note:* Delivered as a capability-honest companion: UI-driven cancellable countdown, `expo-sms` composer fallback, and Face ID / Touch ID biometric gatekeeper (`expo-local-authentication`). Non-blocking tests run cleanly in headless CI without requiring Xcode.
