@@ -12,6 +12,10 @@ import {
   acquireEmergencyWakeLock,
   releaseEmergencyWakeLock,
 } from '../../../modules/foreground-service';
+import {
+  startEmergencyDeterrenceAndEvidence,
+  stopEmergencyDeterrenceAndEvidence,
+} from '../evidence/evidenceCoordinator';
 
 export interface SosContext {
   triggerSource: string;
@@ -182,6 +186,17 @@ export const sosMachine = setup({
         console.warn('[sosMachine] releaseWakeLock error:', err)
       );
     },
+    startDeterrenceAndEvidence: ({ context }) => {
+      const sessionId = context.sessionId || `${Date.now()}`;
+      startEmergencyDeterrenceAndEvidence(sessionId, context.triggerSource).catch((err) =>
+        console.warn('[sosMachine] startDeterrenceAndEvidence error:', err)
+      );
+    },
+    stopDeterrenceAndEvidence: () => {
+      stopEmergencyDeterrenceAndEvidence().catch((err) =>
+        console.warn('[sosMachine] stopDeterrenceAndEvidence error:', err)
+      );
+    },
   },
 }).createMachine({
   id: 'sos',
@@ -189,7 +204,7 @@ export const sosMachine = setup({
   initial: 'idle',
   states: {
     idle: {
-      entry: ['stopService', 'releaseWakeLock'],
+      entry: ['stopService', 'releaseWakeLock', 'stopDeterrenceAndEvidence'],
       invoke: {
         src: 'loadSettings',
         onDone: {
@@ -219,8 +234,14 @@ export const sosMachine = setup({
       entry: 'startCountdownService',
       invoke: { src: 'countdownTicker' },
       on: {
-        CANCEL: 'idle',
-        MARK_SAFE: 'idle',
+        CANCEL: {
+          target: 'idle',
+          actions: 'stopDeterrenceAndEvidence',
+        },
+        MARK_SAFE: {
+          target: 'idle',
+          actions: 'stopDeterrenceAndEvidence',
+        },
         TICK: [
           { guard: 'countdownFinished', target: 'dispatching' },
           { actions: assign(({ context }) => ({ secondsRemaining: context.secondsRemaining - 1 })) },
@@ -236,6 +257,7 @@ export const sosMachine = setup({
           sessionId: () => `${Date.now()}`,
           lastError: () => null,
         }),
+        'startDeterrenceAndEvidence',
       ],
       exit: 'releaseWakeLock',
       invoke: {
@@ -271,12 +293,12 @@ export const sosMachine = setup({
         MARK_SAFE: 'resolving',
         DISMISS: {
           target: 'idle',
-          actions: assign(() => initialContext),
+          actions: ['stopDeterrenceAndEvidence', assign(() => initialContext)],
         },
       },
     },
     resolving: {
-      entry: 'acquireWakeLock',
+      entry: ['acquireWakeLock', 'stopDeterrenceAndEvidence'],
       exit: 'releaseWakeLock',
       invoke: {
         src: 'dispatchSafe',
