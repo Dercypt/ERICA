@@ -8,7 +8,10 @@
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.erica.sos"
+      "bundleIdentifier": "com.erica.sos",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "E.R.I.C.A. uses Face ID to securely unlock your emergency contacts and settings."
+      }
     },
     "android": {
       "package": "com.erica.sos",

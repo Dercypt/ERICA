@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
+import fs from 'node:fs';
 import { resetMockSecureStore } from './mockExpo.mjs';
 import {
   setMockBiometricState,
@@ -233,6 +234,14 @@ public class MainActivity extends ReactActivity {
   // Verify biometric permissions in ERICA_PERMISSIONS
   assert.ok(ERICA_PERMISSIONS.includes('android.permission.USE_BIOMETRIC'), 'Must include USE_BIOMETRIC permission');
   assert.ok(ERICA_PERMISSIONS.includes('android.permission.USE_FINGERPRINT'), 'Must include USE_FINGERPRINT permission');
+
+  // Verify iOS Face ID permissions in app.json
+  const appJson = JSON.parse(fs.readFileSync('./app.json', 'utf8'));
+  assert.strictEqual(
+    appJson.expo?.ios?.infoPlist?.NSFaceIDUsageDescription,
+    'E.R.I.C.A. uses Face ID to securely unlock your emergency contacts and settings.',
+    'app.json must define NSFaceIDUsageDescription in ios.infoPlist'
+  );
 });
 
 test('9. CRITICAL THREAT-MODEL GUARD: Emergency Dispatch Bypass operates unimpeded while phone/app is locked', async () => {
