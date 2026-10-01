@@ -50,27 +50,43 @@ For detailed device configuration, ADB validation commands, and OEM battery opti
 
 ---
 
-## Project Structure
+## Project Structure & Architecture
+
+A complete file-by-file categorization and taxonomy is documented in [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md).
 
 ```text
-ERICA-sandbox/
+ERICA/
+├── AGENTS.md                # Autonomous agent directives & execution loop
+├── LAWS.md                  # Immutable system invariants & read-only laws
+├── PRINCIPLES.md            # Engineering defaults & escalation triggers
+├── HARNESS.md               # Verification toolchain & autonomous fix protocol
+├── verify.sh                # End-to-end verification harness runner
 ├── android/                 # Android native project and manifest configuration
 ├── assets/                  # App icons, splash screens, and adaptive assets
-├── docs/                    # Architecture Decision Records and specifications
-│   ├── adr/
-│   │   ├── 0001-hermes-crypto-subtle-support-and-pbkdf2-latency.md
-│   │   └── 001-native-kotlin-and-ios-companion.md
+├── docs/                    # Architecture Decision Records, testing specs & roadmap
+│   ├── adr/                 # Architecture Decision Records (001, 0001)
 │   ├── ADVERSARIAL_DEVICE_TESTING.md
+│   ├── PROJECT_STRUCTURE.md # Detailed file-by-file taxonomy & categorization
 │   └── ROADMAP.md
-├── modules/                 # Native Kotlin Expo Modules
-│   ├── foreground-service/  # EmergencyForegroundService & wake locks
+├── modules/                 # Native Expo Modules (Android Kotlin + iOS Swift)
+│   ├── foreground-service/  # EmergencyForegroundService, wake locks & notification actions
 │   ├── physical-triggers/   # Volume button AccessibilityService & BootReceiver
-│   └── silent-sms/          # Direct SmsManager multipart silent dispatch
-├── src/
+│   └── silent-sms/          # Direct SmsManager multipart silent background dispatch
+├── plugins/                 # Expo Config Plugins (manifest injection & permissions)
+│   └── withEricaAndroidConfig.js
+├── src/                     # Pure TypeScript domain logic & application shell
 │   ├── app/                 # Root navigation and screen layout
-│   └── features/            # Feature modules (contacts, dispatch, history, location, security, sos)
-├── test/                    # 13-suite automated test matrix
+│   └── features/            # Feature domains
+│       ├── contacts/        # Encrypted emergency & decoy contacts
+│       ├── dispatch/        # SQLite outbox queue & exponential backoff retry engine
+│       ├── history/         # Encrypted incident & dispatch audit log
+│       ├── location/        # High-accuracy emergency GPS provider
+│       ├── security/        # AES-256-GCM, native PBKDF2, master key lifecycle & app lock
+│       ├── settings/        # Hardware triggers and alert preferences
+│       └── sos/             # XState v5 emergency state machine and primary UI
+├── test/                    # 13-suite automated test matrix & headless mocks
 ├── App.tsx                  # Root application entry
+├── app.json                 # Expo project manifest & native permissions
 ├── CONTRIBUTING.md          # Workflow guidelines and branch rules
 ├── LICENSE                  # MIT License
 ├── package.json             # Dependencies and test runner script
