@@ -3,7 +3,7 @@ import { View, Text, FlatList, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { clearHistory, getHistory, type HistoryEntry } from './historyStorage';
-import { getEvidence, clearEvidence, type EvidenceRecord } from '../evidence';
+import { getEvidenceSummaries, clearEvidence, type EvidenceSummary } from '../evidence';
 
 function formatDate(ms: number) {
   return new Date(ms).toLocaleString();
@@ -11,12 +11,14 @@ function formatDate(ms: number) {
 
 export function HistoryScreen() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [evidenceMap, setEvidenceMap] = useState<Record<string, EvidenceRecord[]>>({});
+  const [evidenceMap, setEvidenceMap] = useState<Record<string, EvidenceSummary[]>>({});
 
   const load = useCallback(() => {
     getHistory().then(setHistory);
-    getEvidence().then((evList) => {
-      const map: Record<string, EvidenceRecord[]> = {};
+    // Only counts are shown, so load summaries; getEvidence() would pull every recording
+    // and photo into memory.
+    getEvidenceSummaries().then((evList) => {
+      const map: Record<string, EvidenceSummary[]> = {};
       evList.forEach((ev) => {
         if (!map[ev.sessionId]) map[ev.sessionId] = [];
         map[ev.sessionId].push(ev);

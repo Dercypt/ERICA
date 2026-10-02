@@ -9,6 +9,7 @@ const mockReactNativeUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockR
 
 const mockLocationUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockLocation.mjs')).href;
 const mockNetInfoUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockNetInfo.mjs')).href;
+const mockExpoSqliteUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockExpoSqlite.mjs')).href;
 const mockComponentUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockComponent.mjs')).href;
 const mockSmsUrl = pathToFileURL(path.resolve(process.cwd(), 'test/mockSms.mjs')).href;
 
@@ -21,6 +22,9 @@ export async function resolve(specifier, context, nextResolve) {
   }
   if (specifier === 'expo' || specifier === 'expo-modules-core') {
     return nextResolve(mockExpoUrl, context);
+  }
+  if (specifier === 'expo-sqlite') {
+    return nextResolve(mockExpoSqliteUrl, context);
   }
   if (specifier === 'expo-location') {
     return nextResolve(mockLocationUrl, context);

@@ -11,14 +11,21 @@ import {
 import {
   startEmergencyDeterrenceAndEvidence,
   stopEmergencyDeterrenceAndEvidence,
+  setAudioSegmentMsForTesting,
 } from '../src/features/evidence/evidenceCoordinator';
 import {
   appendEvidenceRecord,
+  appendEvidenceRecords,
   clearEvidence,
   getEvidence,
+  getEvidenceSummaries,
+  setCustomEvidenceDatabase,
   EVIDENCE_STORAGE_KEY,
+  EVIDENCE_DB_NAME,
+  EVIDENCE_CHUNK_CHARS,
+  type EvidenceRecord,
 } from '../src/features/evidence/evidenceStorage';
-import { DecryptionFailedError } from '../src/features/contacts/contactsStorage';
+import { createTestDatabase, openDatabaseAsync } from './mockExpoSqlite.mjs';
 import { encryptString, generateRandomBytes, wipeMasterKeyMemory } from '../src/features/security';
 
 const AUDIO = {
@@ -33,6 +40,7 @@ test.beforeEach(async () => {
   resetMockSecureStore();
   wipeMasterKeyMemory();
   resetDeterrenceEvidenceOverrides();
+  setCustomEvidenceDatabase(null);
   await clearEvidence();
   await saveSettings({
     ...DEFAULT_SETTINGS,
@@ -44,6 +52,7 @@ test.beforeEach(async () => {
 
 test.afterEach?.(() => {
   resetDeterrenceEvidenceOverrides();
+  setAudioSegmentMsForTesting(null);
 });
 
 test('stop waits for a start still in flight, so the microphone and siren are never orphaned', async () => {
@@ -98,23 +107,109 @@ test('overlapping stop calls share one teardown and keep the recording with its 
   assert.strictEqual(evidence[0].sessionId, 'sess_dismiss', 'recording must not be discarded or misattributed');
 });
 
-test('evidence writes refuse to overwrite a vault they cannot decrypt', async () => {
+const sample = (id: string, dataBase64 = 'AA=='): EvidenceRecord => ({
+  id,
+  sessionId: 's',
+  type: 'audio',
+  mimeType: 'audio/m4a',
+  fileSizeBytes: 1,
+  createdAt: 1,
+  dataBase64,
+});
+
+test('an unreadable legacy vault is left in place, never overwritten, and new evidence still saves', async () => {
   const foreign = await encryptString('[]', generateRandomBytes(32));
   await AsyncStorage.setItem(EVIDENCE_STORAGE_KEY, foreign);
-  await assert.rejects(
-    () =>
-      appendEvidenceRecord({
-        id: 'x',
-        sessionId: 's',
-        type: 'audio',
-        mimeType: 'audio/m4a',
-        fileSizeBytes: 1,
-        createdAt: 1,
-        dataBase64: 'AA==',
-      }),
-    DecryptionFailedError
-  );
+  setCustomEvidenceDatabase(createTestDatabase()); // fresh open re-runs the migration
+  await appendEvidenceRecord(sample('new'));
   assert.strictEqual(await AsyncStorage.getItem(EVIDENCE_STORAGE_KEY), foreign);
+  assert.deepStrictEqual((await getEvidence()).map((r) => r.id), ['new']);
+});
+
+test('a readable legacy vault is migrated into SQLite once and removed', async () => {
+  const legacy = [sample('newer'), sample('older')];
+  await AsyncStorage.setItem(EVIDENCE_STORAGE_KEY, await encryptString(JSON.stringify(legacy)));
+  setCustomEvidenceDatabase(createTestDatabase());
+  assert.deepStrictEqual((await getEvidence()).map((r) => r.id), ['newer', 'older']);
+  assert.strictEqual(await AsyncStorage.getItem(EVIDENCE_STORAGE_KEY), null);
+});
+
+test('large recordings are chunked: no stored value grows with recording length', async () => {
+  const big = 'A'.repeat(EVIDENCE_CHUNK_CHARS * 3 + 17); // ~770 KB of base64
+  await appendEvidenceRecord(sample('long_audio', big));
+  const db = await openDatabaseAsync(EVIDENCE_DB_NAME);
+  const chunks = await db.getAllAsync<{ envelope: string }>('SELECT envelope FROM evidence_chunks;');
+  assert.strictEqual(chunks.length, 4);
+  const largest = Math.max(...chunks.map((c) => c.envelope.length));
+  assert.ok(largest < 700 * 1024, 'each stored chunk stays far below the ~2 MB per-value read limit');
+  assert.strictEqual((await getEvidence())[0].dataBase64, big, 'chunks reassemble exactly');
+});
+
+test('concurrent evidence writes (photos + audio segment) do not collide', async () => {
+  await Promise.all([
+    appendEvidenceRecords([sample('photo_rear'), sample('photo_front')]),
+    appendEvidenceRecord(sample('audio_seg_1')),
+  ]);
+  assert.strictEqual((await getEvidenceSummaries()).length, 3);
+});
+
+test('long recordings are split into segments, each saved as its own record', async () => {
+  let segment = 0;
+  let recording = false;
+  configureDeterrenceEvidenceOverrides({
+    startAudioRecording: async () => {
+      recording = true;
+      return true;
+    },
+    stopAudioRecording: async () => {
+      if (!recording) return null;
+      recording = false;
+      segment++;
+      return { ...AUDIO, base64Data: `U0VH${segment}` };
+    },
+  });
+  setAudioSegmentMsForTesting(30);
+
+  await startEmergencyDeterrenceAndEvidence('sess_long');
+  await new Promise((r) => setTimeout(r, 110)); // ~3 rotations
+  await stopEmergencyDeterrenceAndEvidence();
+
+  const audio = (await getEvidence()).filter((e) => e.type === 'audio');
+  assert.ok(audio.length >= 3, `expected several segments, got ${audio.length}`);
+  assert.ok(audio.every((e) => e.sessionId === 'sess_long'));
+  assert.strictEqual(recording, false, 'microphone must be off after stop');
+});
+
+test('stop during a segment rotation never leaves the microphone recording', async () => {
+  let recording = false;
+  let releaseRotationStop: () => void = () => {};
+  let stopCalls = 0;
+  configureDeterrenceEvidenceOverrides({
+    startAudioRecording: async () => {
+      recording = true;
+      return true;
+    },
+    stopAudioRecording: async () => {
+      stopCalls++;
+      if (stopCalls === 1) {
+        await new Promise<void>((r) => {
+          releaseRotationStop = r; // first (rotation) stop is slow
+        });
+      }
+      const had = recording;
+      recording = false;
+      return had ? AUDIO : null;
+    },
+  });
+  setAudioSegmentMsForTesting(20);
+
+  await startEmergencyDeterrenceAndEvidence('sess_rotate');
+  await new Promise((r) => setTimeout(r, 35)); // rotation in flight, blocked in stop
+  const stop = stopEmergencyDeterrenceAndEvidence();
+  releaseRotationStop();
+  await stop;
+  await new Promise((r) => setTimeout(r, 50));
+  assert.strictEqual(recording, false, 'rotation must not restart the mic after stop was requested');
 });
 
 test('emergency foreground service can keep microphone and camera access while backgrounded', () => {
