@@ -23,6 +23,16 @@ export interface Settings {
   // Duress PIN & Anti-Coercion Protection
   duressSilentSosEnabled?: boolean;
   decoyContactsType?: 'mock' | 'empty';
+
+  // Phase 4 Deterrence & Alarms (Strict Privacy Defaults: OFF by default)
+  deterrenceSirenEnabled?: boolean;
+  deterrenceStrobeEnabled?: boolean;
+  respectSilentMode?: boolean;
+
+  // Phase 4 Evidence Capture Consent Gates (Strict Consent Required: OFF by default)
+  evidenceAudioConsentEnabled?: boolean;
+  evidencePhotoConsentEnabled?: boolean;
+  evidenceDualCamera?: boolean;
 }
 
 const STORAGE_KEY = '@erica/settings';
@@ -50,6 +60,14 @@ export const DEFAULT_SETTINGS: Settings = {
   // Duress PIN Defaults: Silent SOS off by default, Mock contacts default
   duressSilentSosEnabled: false,
   decoyContactsType: 'mock',
+
+  // Phase 4 Defaults: Strict Privacy & Safety (All OFF by default, Respect Silent Mode ON)
+  deterrenceSirenEnabled: false,
+  deterrenceStrobeEnabled: false,
+  respectSilentMode: true,
+  evidenceAudioConsentEnabled: false,
+  evidencePhotoConsentEnabled: false,
+  evidenceDualCamera: true,
 };
 
 export async function getSettings(): Promise<Settings> {

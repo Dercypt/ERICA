@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["DeterrenceEvidenceModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.deterrenceevidence.DeterrenceEvidenceModule"]
+  }
+}

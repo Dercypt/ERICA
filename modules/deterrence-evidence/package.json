@@ -1,0 +1,7 @@
+{
+  "name": "deterrence-evidence",
+  "version": "0.1.0",
+  "description": "Native deterrence (siren & strobe) and consent-gated evidence capture engine for ERICA",
+  "main": "index.ts",
+  "types": "index.ts"
+}
