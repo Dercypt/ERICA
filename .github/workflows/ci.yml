@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck and test matrix (HARNESS.md)
+        run: ./verify.sh
+      # android/ is committed but generated. Regenerate it from app.json + config plugins and
+      # fail if anything differs, so native code can't silently depend on hand edits that
+      # `expo prebuild --clean` would delete.
+      - name: Native config matches expo prebuild
+        run: |
+          CI=1 npx expo prebuild --platform android --no-install
+          git diff --exit-code -- android package.json
+          test -z "$(git status --porcelain -- android)"

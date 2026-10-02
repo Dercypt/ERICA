@@ -1,13 +1,33 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
   <application>
+    <!-- specialUse is the Android 14+ fallback when location permission is not granted;
+         see EmergencyForegroundService.startInForeground. Sideload/F-Droid distribution. -->
     <service
       android:name="expo.modules.foregroundservice.EmergencyForegroundService"
-      android:foregroundServiceType="location"
-      android:exported="false" />
+      android:foregroundServiceType="location|specialUse"
+      android:exported="false">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="Personal safety: keeps an active emergency alert running until the user marks themselves safe" />
+    </service>
+    <!-- Resumes undelivered alerts after reboot or app update. Declared here rather than in
+         the generated app manifest so it survives `expo prebuild --clean`. -->
+    <receiver
+      android:name="expo.modules.foregroundservice.EricaBootReceiver"
+      android:enabled="true"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.intent.action.BOOT_COMPLETED" />
+        <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+        <action android:name="android.intent.action.AIRPLANE_MODE" />
+      </intent-filter>
+    </receiver>
   </application>
 </manifest>

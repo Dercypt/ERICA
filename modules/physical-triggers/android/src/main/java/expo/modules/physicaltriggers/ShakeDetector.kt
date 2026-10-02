@@ -206,7 +206,9 @@ class ShakeDetector(
       onSample?.invoke(jerk, jerkThreshold, isSpike)
     }
 
-    if (!isEnabled) {
+    // Calibration must never dispatch a real alert: the settings screen promises
+    // "no alert sent", so while testing only samples are reported.
+    if (!isEnabled || isTesting) {
       return
     }
 

@@ -51,7 +51,13 @@ export async function initPhysicalTriggers(): Promise<() => void> {
 }
 
 function MainApp() {
-  const { isLocked, isPinConfigured, isDuressMode, recordActivity } = useAppLock();
+  const { isInitialized, isLocked, isPinConfigured, isDuressMode, recordActivity } = useAppLock();
+
+  // Until the stored PIN state is read we don't know whether to lock, so render nothing
+  // rather than flashing the unlocked contacts/history UI on every cold start.
+  if (!isInitialized) {
+    return <View style={{ flex: 1, backgroundColor: '#0B0B0F' }} />;
+  }
 
   if (isDuressMode) {
     return (

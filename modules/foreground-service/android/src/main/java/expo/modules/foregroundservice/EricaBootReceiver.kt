@@ -1,4 +1,4 @@
-package com.erica.sos
+package expo.modules.foregroundservice
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -6,8 +6,12 @@ import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
 import android.os.Build
 import android.util.Log
+import java.io.File
 
 /**
+ * Lives in this library (not the generated app module) so `expo prebuild --clean` cannot
+ * delete it; previously it existed only as a hand edit under android/app.
+ *
  * Handles device boot (BOOT_COMPLETED, MY_PACKAGE_REPLACED) and connectivity restoration (AIRPLANE_MODE).
  * Inspects persistent SQLite outbox queue; if pending emergency alerts exist, elevates the process
  * and immediately flushes the queue.
@@ -37,13 +41,15 @@ class EricaBootReceiver : BroadcastReceiver() {
 
   private fun checkAndFlushPendingOutbox(context: Context, sourceAction: String) {
     try {
-      val dbFile = context.getDatabasePath("erica_outbox.db")
+      // expo-sqlite keeps databases in filesDir/SQLite (its defaultDatabaseDirectory), not the
+      // standard getDatabasePath() location, so the old lookup never found the outbox.
+      val dbFile = File(File(context.filesDir, "SQLite"), "erica_outbox.db")
       if (!dbFile.exists()) {
         Log.d(TAG, "No erica_outbox.db database found on device")
         return
       }
 
-      val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE)
+      val db = SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READONLY)
       val cursor = db.rawQuery(
         "SELECT COUNT(*) FROM outbox_queue WHERE status = 'PENDING' OR status = 'IN_FLIGHT'",
         null
@@ -59,11 +65,10 @@ class EricaBootReceiver : BroadcastReceiver() {
 
       if (pendingCount > 0) {
         // 1. Elevate process to EmergencyForegroundService so OS does not kill it during carrier handoff
-        val serviceIntent = Intent().apply {
-          setClassName(context.packageName, "expo.modules.foregroundservice.EmergencyForegroundService")
-          action = "expo.modules.foregroundservice.ACTION_START"
-          putExtra("extra_title", "Emergency Alert Active")
-          putExtra("extra_message", "Flushing $pendingCount pending emergency alert(s)...")
+        val serviceIntent = Intent(context, EmergencyForegroundService::class.java).apply {
+          action = EmergencyForegroundService.ACTION_START
+          putExtra(EmergencyForegroundService.EXTRA_TITLE, "Emergency Alert Active")
+          putExtra(EmergencyForegroundService.EXTRA_MESSAGE, "Flushing $pendingCount pending emergency alert(s)...")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
           context.startForegroundService(serviceIntent)

@@ -2,7 +2,7 @@
   * App Lock Lifecycle Controller for E.R.I.C.A.
   *
   * Implements:
-  * - AppState lifecycle monitoring (active -> background / inactive).
+  * - AppState lifecycle monitoring (active -> background).
   * - Immediate lock state engagement on backgrounding or after an idle timeout (e.g. 15s / 30s / Immediate).
   * - Coordination between biometric authentication, PIN fallback, and vault locking.
   */
@@ -27,6 +27,8 @@ import { getSettings, saveSettings } from '../settings/settingsStorage';
 import { triggerDuressSilentSos } from '../dispatch/duressDispatch';
 
 export interface AppLockSnapshot {
+  /** False until stored PIN/settings state has been read; render nothing sensitive before then. */
+  isInitialized: boolean;
   isLocked: boolean;
   isPinConfigured: boolean;
   isDuressPinConfigured: boolean;
@@ -48,7 +50,10 @@ export class AppLockController {
   private appStateSubscription: { remove: () => void } | null = null;
   private listeners = new Set<(snapshot: AppLockSnapshot) => void>();
   private initialized = false;
+  private initPromise: Promise<void> | null = null;
+  private authInProgress = false;
   private snapshot: AppLockSnapshot = {
+    isInitialized: false,
     isLocked: false,
     isPinConfigured: false,
     isDuressPinConfigured: false,
@@ -69,6 +74,7 @@ export class AppLockController {
       !this.isDuressMode;
 
     this.snapshot = {
+      isInitialized: this.initialized,
       isLocked: this.isLocked,
       isPinConfigured: this.isPinConfigured,
       isDuressPinConfigured: this.isDuressPinConfigured,
@@ -81,13 +87,21 @@ export class AppLockController {
   /**
    * Initializes the lifecycle controller.
    * On initial open, locks out unauthorized access if a PIN is configured.
+   * Every useAppLock() mount calls this; concurrent callers share one initialization so
+   * only a single AppState listener is ever registered.
    */
-  public async init(): Promise<void> {
-    if (this.initialized) {
-      await this.refreshState();
-      return;
+  public init(): Promise<void> {
+    if (this.initPromise) {
+      return this.initPromise.then(() => this.refreshState());
     }
+    this.initPromise = this.doInit().catch((err) => {
+      this.initPromise = null;
+      throw err;
+    });
+    return this.initPromise;
+  }
 
+  private async doInit(): Promise<void> {
     this.isPinConfigured = await isPinConfigured();
     this.isDuressPinConfigured = await isDuressPinConfigured();
     this.isBiometricsAvailable = await isBiometricsAvailable();
@@ -121,10 +135,17 @@ export class AppLockController {
   }
 
   /**
-   * Handles transitions between active, background, and inactive app states.
+   * Handles transitions between active and background app states.
+   *
+   * 'inactive' is deliberately ignored: iOS reports it for the notification shade, the app
+   * switcher and the Face ID prompt itself, so locking on it re-locked the app mid-unlock.
+   * Transitions while a biometric prompt is open are ignored for the same reason.
    */
   public handleAppStateChange(nextAppState: AppStateStatus): void {
-    if (nextAppState === 'background' || nextAppState === 'inactive') {
+    if (this.authInProgress) {
+      return;
+    }
+    if (nextAppState === 'background') {
       this.lastBackgroundedAt = Date.now();
       this.clearIdleTimer();
 
@@ -133,15 +154,12 @@ export class AppLockController {
         this.lock();
       }
     } else if (nextAppState === 'active') {
-      if (this.isPinConfigured) {
-        if (this.lockTimeoutSeconds === 0) {
-          // In immediate mode, ensure locked when returning to foreground
+      // Only a real trip to the background can expire the session; an 'active' event
+      // without one (e.g. after a system dialog) must not lock the user out.
+      if (this.isPinConfigured && this.lastBackgroundedAt !== null) {
+        const elapsedSeconds = (Date.now() - this.lastBackgroundedAt) / 1000;
+        if (elapsedSeconds >= this.lockTimeoutSeconds) {
           this.lock();
-        } else if (this.lastBackgroundedAt !== null) {
-          const elapsedSeconds = (Date.now() - this.lastBackgroundedAt) / 1000;
-          if (elapsedSeconds >= this.lockTimeoutSeconds) {
-            this.lock();
-          }
         }
       }
 
@@ -257,11 +275,18 @@ export class AppLockController {
       return { success: false, error: 'BIOMETRICS_DISABLED' };
     }
 
-    const result = await securityUnlockWithBiometrics({ promptMessage });
+    this.authInProgress = true;
+    let result: BiometricAuthResult;
+    try {
+      result = await securityUnlockWithBiometrics({ promptMessage });
+    } finally {
+      this.authInProgress = false;
+    }
     if (result.success) {
       this.isLocked = false;
       this.isDuressMode = false;
       setDuressModeActive(false);
+      this.lastBackgroundedAt = null;
       this.resetIdleTimer();
       this.notify();
     }
@@ -334,9 +359,13 @@ export class AppLockController {
     this.appStateSubscription = null;
     this.listeners.clear();
     this.initialized = false;
+    this.initPromise = null;
+    this.authInProgress = false;
+    this.lastBackgroundedAt = null;
     this.isDuressMode = false;
     this.isDuressPinConfigured = false;
     setDuressModeActive(false);
+    this.updateSnapshot();
   }
 }
 

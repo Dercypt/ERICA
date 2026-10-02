@@ -1,0 +1,4 @@
+<resources>
+  <string name="erica_accessibility_service_label">E.R.I.C.A. volume-button SOS</string>
+  <string name="erica_accessibility_service_description">Watches only for your volume-button SOS pattern so an alert can be triggered with the screen off or from another app. E.R.I.C.A. does not read screen content.</string>
+</resources>

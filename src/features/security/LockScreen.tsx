@@ -86,8 +86,10 @@ export function LockScreen() {
   }, [attemptBiometrics]);
 
   const handlePinSubmit = async () => {
-    if (!pin || pin.length < 6) {
-      setErrorMessage('PIN must be at least 6 digits');
+    // New PINs must be 6+ digits, but PINs set before that rule may be 4-5 digits.
+    // Refusing to submit them here locked those users out of their own data for good.
+    if (!pin || pin.length < 4) {
+      setErrorMessage('PIN must be at least 4 digits');
       return;
     }
 

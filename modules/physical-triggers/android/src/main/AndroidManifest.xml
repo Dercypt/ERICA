@@ -1,2 +1,18 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <!-- Declared in the library so it survives `expo prebuild --clean`; it previously lived
+         only in hand edits to the generated android/ app manifest. -->
+    <service
+      android:name="expo.modules.physicaltriggers.EricaAccessibilityService"
+      android:label="@string/erica_accessibility_service_label"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+      android:exported="true">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/erica_accessibility_service_config" />
+    </service>
+  </application>
 </manifest>
