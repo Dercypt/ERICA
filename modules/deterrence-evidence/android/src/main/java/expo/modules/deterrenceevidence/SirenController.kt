@@ -52,6 +52,7 @@ class SirenController(private val context: Context) {
     }
 
     sirenJob = CoroutineScope(Dispatchers.IO).launch {
+      var track: AudioTrack? = null
       try {
         val bufferSize = AudioTrack.getMinBufferSize(
           SAMPLE_RATE,
@@ -59,7 +60,7 @@ class SirenController(private val context: Context) {
           AudioFormat.ENCODING_PCM_16BIT
         ).coerceAtLeast(SAMPLE_RATE / 2)
 
-        val track = AudioTrack.Builder()
+        val built = AudioTrack.Builder()
           .setAudioAttributes(
             AudioAttributes.Builder()
               .setUsage(AudioAttributes.USAGE_ALARM)
@@ -77,8 +78,9 @@ class SirenController(private val context: Context) {
           .setTransferMode(AudioTrack.MODE_STREAM)
           .build()
 
-        audioTrack = track
-        track.play()
+        track = built
+        setTrack(built)
+        built.play()
 
         val sampleBuffer = ShortArray(bufferSize)
         var phase = 0.0
@@ -104,12 +106,14 @@ class SirenController(private val context: Context) {
               if (currentFreq <= 700.0) ascending = true
             }
           }
-          track.write(sampleBuffer, 0, sampleBuffer.size)
+          built.write(sampleBuffer, 0, sampleBuffer.size)
         }
       } catch (e: Throwable) {
         Log.e(TAG, "Error generating siren audio", e)
       } finally {
-        cleanupTrack()
+        // Release only this loop's track. Clearing the shared field here let a stopped siren's
+        // late cleanup release the track of a siren restarted in the meantime.
+        track?.let { releaseTrack(it) }
       }
     }
 
@@ -121,22 +125,28 @@ class SirenController(private val context: Context) {
     isRunning.set(false)
     sirenJob?.cancel()
     sirenJob = null
-    cleanupTrack()
+    audioTrack?.let { releaseTrack(it) }
     return true
   }
 
-  private fun cleanupTrack() {
+  @Synchronized
+  private fun setTrack(track: AudioTrack) {
+    audioTrack = track
+  }
+
+  @Synchronized
+  private fun releaseTrack(track: AudioTrack) {
     try {
-      audioTrack?.let {
-        if (it.playState == AudioTrack.PLAYSTATE_PLAYING) {
-          it.stop()
-        }
-        it.release()
+      if (track.playState == AudioTrack.PLAYSTATE_PLAYING) {
+        track.stop()
       }
+      track.release()
     } catch (e: Throwable) {
       Log.w(TAG, "Error cleaning up AudioTrack", e)
     } finally {
-      audioTrack = null
+      if (audioTrack === track) {
+        audioTrack = null
+      }
     }
   }
 }

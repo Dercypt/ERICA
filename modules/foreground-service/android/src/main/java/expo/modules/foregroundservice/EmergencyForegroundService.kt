@@ -161,36 +161,52 @@ class EmergencyForegroundService : Service() {
     }
   }
 
+  private fun hasPermission(permission: String): Boolean {
+    return ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+  }
+
   private fun hasLocationPermission(): Boolean {
-    return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-      PackageManager.PERMISSION_GRANTED ||
-      ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
-      PackageManager.PERMISSION_GRANTED
+    return hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) ||
+      hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
   }
 
   /**
-   * Promotes the service to the foreground with a type the OS will accept.
+   * Promotes the service to the foreground with types the OS will accept, most capable first.
    *
-   * Android 14+ throws SecurityException for a location-type service unless location
-   * permission is already granted. The old fallback retried with no explicit type, which
-   * resolves to the manifest's location type and threw again, crashing the app mid-SOS.
-   * Without location permission we now use specialUse (declared in the manifest).
+   * - Android 14+ throws SecurityException for a location-type service unless location
+   *   permission is already granted; without it we fall back to specialUse.
+   * - Since Android 9 a backgrounded app gets silence from the microphone and errors from the
+   *   camera unless a foreground service declares the microphone / camera type (Android 11+).
+   *   Phase 4 evidence capture runs exactly then (screen off, app in background), so those
+   *   types are added whenever the user has granted the permission.
    */
   private fun startInForeground(notification: Notification): Boolean {
-    val types = mutableListOf<Int>()
+    val candidates = mutableListOf<Int>()
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      var full = 0
+      if (hasLocationPermission()) full = full or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+      if (hasPermission(Manifest.permission.RECORD_AUDIO)) {
+        full = full or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+      }
+      if (hasPermission(Manifest.permission.CAMERA)) {
+        full = full or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+      }
+      if (full != 0) candidates.add(full)
+    }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      if (hasLocationPermission()) types.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-      types.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+      if (hasLocationPermission()) candidates.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+      candidates.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      types.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+      candidates.add(ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      for (type in types) {
+      for (type in candidates.distinct()) {
         try {
           startForeground(NOTIFICATION_ID, notification, type)
           return true
         } catch (e: Exception) {
+          // e.g. microphone/camera types are refused when the service starts from the background
           Log.e(TAG, "startForeground failed for type $type", e)
         }
       }

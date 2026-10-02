@@ -41,3 +41,22 @@ export async function requestEmergencyPermissions(): Promise<EmergencyPermission
     return { sms: false, location, notifications: false };
   }
 }
+
+/**
+ * Requests the OS permission behind an evidence consent toggle. In-app consent alone is not
+ * enough: without RECORD_AUDIO / CAMERA granted at runtime the native recorder and camera
+ * fail, so evidence capture silently never happens.
+ */
+export async function requestEvidencePermission(kind: 'audio' | 'camera'): Promise<boolean> {
+  if (Platform.OS !== 'android') {
+    return true;
+  }
+  const permission =
+    kind === 'audio' ? PermissionsAndroid.PERMISSIONS.RECORD_AUDIO : PermissionsAndroid.PERMISSIONS.CAMERA;
+  try {
+    return (await PermissionsAndroid.request(permission)) === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (err) {
+    console.warn(`[permissions] Failed to request ${kind} permission:`, err);
+    return false;
+  }
+}
