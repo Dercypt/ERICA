@@ -3,22 +3,30 @@ package expo.modules.deterrenceevidence
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraAccessException
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.CaptureResult
+import android.hardware.camera2.TotalCaptureResult
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Base64
 import android.util.Log
+import android.view.Surface
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "PhotoEvidenceCapturer"
 private const val CAPTURE_TIMEOUT_MS = 6000L
+// Upper bound on the auto-exposure warm-up before the still capture.
+private const val AE_WARMUP_TIMEOUT_MS = 1500L
+// Frames to wait on devices that never report an AE state (LEGACY hardware level).
+private const val AE_WARMUP_FALLBACK_FRAMES = 15
 
 class PhotoEvidenceCapturer(private val context: Context) {
   private val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
@@ -43,7 +51,9 @@ class PhotoEvidenceCapturer(private val context: Context) {
       CameraCharacteristics.LENS_FACING_BACK
     }
 
-    val cameraId = findCameraId(facing) ?: findCameraId(CameraCharacteristics.LENS_FACING_BACK)
+    // No fallback to the other lens: a rear photo saved as "front" is mislabelled evidence,
+    // and dual capture used to store the rear camera twice on phones without a front camera.
+    val cameraId = findCameraId(facing)
     if (cameraId == null || cameraManager == null) {
       throw IllegalStateException("No available camera for lens $lens")
     }
@@ -59,6 +69,8 @@ class PhotoEvidenceCapturer(private val context: Context) {
 
     var cameraDevice: CameraDevice? = null
     var imageReader: ImageReader? = null
+    var previewTexture: SurfaceTexture? = null
+    var previewSurface: Surface? = null
 
     try {
       imageReader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2)
@@ -99,8 +111,16 @@ class PhotoEvidenceCapturer(private val context: Context) {
       cameraDevice = withTimeoutOrNull(3000L) { deviceDeferred.await() }
         ?: throw IllegalStateException("Camera open timed out")
 
+      // A still request on a freshly opened camera runs before auto-exposure has seen a single
+      // frame, so photos often came out dark or black. A throwaway preview surface lets AE settle
+      // first; it is never shown on screen.
+      val texture = SurfaceTexture(0).apply { setDefaultBufferSize(640, 480) }
+      previewTexture = texture
+      val warmupSurface = Surface(texture)
+      previewSurface = warmupSurface
+
       val sessionDeferred = CompletableDeferred<CameraCaptureSession>()
-      val surfaces = listOf(imageReader.surface)
+      val surfaces = listOf(imageReader.surface, warmupSurface)
 
       @Suppress("DEPRECATION")
       cameraDevice.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
@@ -116,9 +136,43 @@ class PhotoEvidenceCapturer(private val context: Context) {
       val session = withTimeoutOrNull(3000L) { sessionDeferred.await() }
         ?: throw IllegalStateException("Capture session configuration timed out")
 
+      val aeSettled = CompletableDeferred<Unit>()
+      var warmupFrames = 0
+      val warmupRequest = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW).apply {
+        addTarget(warmupSurface)
+        set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+      }
+      session.setRepeatingRequest(warmupRequest.build(), object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+          session: CameraCaptureSession,
+          request: CaptureRequest,
+          result: TotalCaptureResult
+        ) {
+          warmupFrames++
+          val aeState = result.get(CaptureResult.CONTROL_AE_STATE)
+          val settled = when (aeState) {
+            CaptureResult.CONTROL_AE_STATE_CONVERGED,
+            CaptureResult.CONTROL_AE_STATE_FLASH_REQUIRED,
+            CaptureResult.CONTROL_AE_STATE_LOCKED -> true
+            null -> warmupFrames >= AE_WARMUP_FALLBACK_FRAMES
+            else -> false
+          }
+          if (settled) aeSettled.complete(Unit)
+        }
+      }, handler)
+      // Best effort: capture anyway if AE has not converged in time.
+      withTimeoutOrNull(AE_WARMUP_TIMEOUT_MS) { aeSettled.await() }
+      try {
+        session.stopRepeating()
+      } catch (e: Throwable) {
+        Log.w(TAG, "stopRepeating after AE warm-up failed: ${e.message}")
+      }
+
       val captureBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE).apply {
         addTarget(imageReader.surface)
         set(CaptureRequest.CONTROL_MODE, CaptureRequest.CONTROL_MODE_AUTO)
+        set(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
       }
 
       session.capture(captureBuilder.build(), null, handler)
@@ -143,6 +197,10 @@ class PhotoEvidenceCapturer(private val context: Context) {
       } catch (_: Throwable) {}
       try {
         imageReader?.close()
+      } catch (_: Throwable) {}
+      try {
+        previewSurface?.release()
+        previewTexture?.release()
       } catch (_: Throwable) {}
       thread.quitSafely()
     }

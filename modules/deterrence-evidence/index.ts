@@ -52,16 +52,29 @@ export async function startDeterrence(config: DeterrenceConfig): Promise<Deterre
   let strobeActive = false;
   let suppressedBySilentMode = false;
 
-  const ringerMode = await activeAdapter.getRingerMode();
+  // Each deterrent is independent: a failure in one (or in reading the ringer mode) used to
+  // throw out of this function and leave the other one never started.
+  const ringerMode: RingerMode = await activeAdapter.getRingerMode().catch((err) => {
+    console.warn('[Deterrence] getRingerMode error:', err);
+    return 'normal';
+  });
 
   if (config.sirenEnabled) {
-    const sirenResult = await activeAdapter.startSiren(config.respectSilentMode);
-    sirenActive = sirenResult.started;
-    suppressedBySilentMode = sirenResult.suppressedBySilentMode;
+    try {
+      const sirenResult = await activeAdapter.startSiren(config.respectSilentMode);
+      sirenActive = sirenResult.started;
+      suppressedBySilentMode = sirenResult.suppressedBySilentMode;
+    } catch (err) {
+      console.warn('[Deterrence] startSiren error:', err);
+    }
   }
 
   if (config.strobeEnabled) {
-    strobeActive = await activeAdapter.startStrobe(config.strobeFrequencyHz);
+    try {
+      strobeActive = await activeAdapter.startStrobe(config.strobeFrequencyHz);
+    } catch (err) {
+      console.warn('[Deterrence] startStrobe error:', err);
+    }
   }
 
   return {

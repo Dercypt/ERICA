@@ -93,6 +93,12 @@ during its emergency path.
 3. CI runs the suite on every PR.
 4. Adversarial test matrix covering dead-zone outbox buffering, reboot survivability, task dismissal, and progressive PIN throttling.
 
+*Status (2026-10-03):* items 1–4 are in place and CI enforces a coverage floor
+(`npm run test:coverage`: lines 85%, branches 78%, functions 70% over `src/` and the module
+JS bridges; currently 88 / 82 / 74). Still open: the native Kotlin modules have no automated
+tests (JVM/Robolectric tests would need new Gradle test dependencies), and the on-device
+"done when" below has no recorded results yet.
+
 **Done when:** All test suites pass cleanly (`npm test`). Emergency dispatch and background survivability are **tested on reference Android hardware** under adversarial conditions (simulated 15+ min deep Doze, locked keyguard, airplane mode dead-zones), avoiding overreaching claims like "certified" due to OEM-specific task killer variations.
 
 ## Phase 6 — Onboarding & polish

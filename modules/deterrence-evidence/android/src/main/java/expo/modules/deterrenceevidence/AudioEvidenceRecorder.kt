@@ -72,18 +72,22 @@ class AudioEvidenceRecorder(private val context: Context) {
     var fileSizeBytes = 0L
     val file = currentOutputFile
 
+    var stopFailed = false
     try {
       mediaRecorder?.let {
         try {
           it.stop()
         } catch (se: Throwable) {
+          // stop() throws when no valid audio was written (e.g. a very short clip); the file
+          // is then not a playable recording and must not be stored as evidence.
+          stopFailed = true
           Log.w(TAG, "MediaRecorder stop failed (possibly too short): ${se.message}")
         }
         it.release()
       }
       mediaRecorder = null
 
-      if (file != null && file.exists() && file.length() > 0) {
+      if (!stopFailed && file != null && file.exists() && file.length() > 0) {
         fileSizeBytes = file.length()
         val bytes = file.readBytes()
         base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP)
