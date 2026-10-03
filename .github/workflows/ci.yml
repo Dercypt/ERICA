@@ -17,6 +17,11 @@ jobs:
       - run: npm ci
       - name: Typecheck and test matrix (HARNESS.md)
         run: ./verify.sh
+      # Fails if line/branch/function coverage of src/ and the module JS bridges drops below
+      # the floor in package.json (set just under the current numbers), so untested code
+      # can't quietly creep onto the emergency path.
+      - name: Coverage floor
+        run: npm run test:coverage
       # android/ is committed but generated. Regenerate it from app.json + config plugins and
       # fail if anything differs, so native code can't silently depend on hand edits that
       # `expo prebuild --clean` would delete.

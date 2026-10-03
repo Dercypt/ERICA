@@ -37,6 +37,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "test": "node --loader ./test/ts-resolver.mjs --experimental-strip-types --test test/*.test.ts",
+    "test:coverage": "node --loader ./test/ts-resolver.mjs --experimental-strip-types --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-include='modules/*/index.ts' --test-coverage-exclude='**/*.tsx' --test-coverage-lines=85 --test-coverage-branches=78 --test-coverage-functions=70 --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "private": true
