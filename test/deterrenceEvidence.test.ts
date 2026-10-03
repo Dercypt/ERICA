@@ -20,9 +20,10 @@ import {
   appendEvidenceRecords,
   getEvidenceBySession,
   clearEvidence,
-  EVIDENCE_STORAGE_KEY,
+  EVIDENCE_DB_NAME,
   type EvidenceRecord,
 } from '../src/features/evidence/evidenceStorage';
+import { openDatabaseAsync } from './mockExpoSqlite.mjs';
 import {
   startEmergencyDeterrenceAndEvidence,
   stopEmergencyDeterrenceAndEvidence,
@@ -248,13 +249,17 @@ test('7. Law 1 Cryptographic Invariant: Evidence vault stored strictly as authen
   assert.strictEqual(retrieved[0].id, 'ev_123');
   assert.strictEqual(retrieved[0].dataBase64, mockEvidence.dataBase64);
 
-  // 2. Query raw on-disk AsyncStorage directly
-  const rawDisk = await AsyncStorage.getItem(EVIDENCE_STORAGE_KEY);
-  assert.ok(rawDisk, 'Raw disk entry for evidence vault must exist');
-  const diskStr = rawDisk as string;
-
-  // Verify it is a valid EncryptedEnvelope format
-  assert.strictEqual(isEncryptedPayload(diskStr), true, 'Raw disk evidence vault must be a valid EncryptedEnvelope');
+  // 2. Query the raw on-disk evidence database directly (every stored row)
+  const db = await openDatabaseAsync(EVIDENCE_DB_NAME);
+  const recordRows = await db.getAllAsync<{ id: string; envelope: string }>('SELECT id, envelope FROM evidence_records;');
+  const chunkRows = await db.getAllAsync<{ envelope: string }>('SELECT envelope FROM evidence_chunks;');
+  assert.strictEqual(recordRows.length, 1, 'Raw disk entry for evidence record must exist');
+  assert.ok(chunkRows.length >= 1, 'Raw disk media chunks must exist');
+  for (const row of [...recordRows, ...chunkRows]) {
+    // Verify every stored value is a valid EncryptedEnvelope format
+    assert.strictEqual(isEncryptedPayload(row.envelope), true, 'Raw disk evidence must be a valid EncryptedEnvelope');
+  }
+  const diskStr = JSON.stringify([recordRows, chunkRows]);
 
   // Strict Plaintext Extraction Check: Raw string must have ZERO occurrences of sensitive plaintext
   assert.strictEqual(diskStr.includes('U0VDUkVUX0FUVUFDSE1FTlRfREFUQVRPS0VOIDExMTE='), false, 'Plaintext media base64 must NEVER leak to disk');
@@ -288,15 +293,23 @@ test('8. Anti-Tampering & Deserialization Barrier on Evidence Storage', async ()
   await appendEvidenceRecord(record);
 
   // Verify tamper detection: Corrupt ciphertext on disk
-  const rawDisk = await AsyncStorage.getItem(EVIDENCE_STORAGE_KEY);
-  assert.ok(rawDisk);
-  const parsed = JSON.parse(rawDisk as string);
+  const db = await openDatabaseAsync(EVIDENCE_DB_NAME);
+  const row = await db.getFirstAsync<{ envelope: string }>(
+    'SELECT envelope FROM evidence_records WHERE id = ?;',
+    'tamper_test'
+  );
+  if (!row) throw new Error('evidence record row missing');
+  const parsed = JSON.parse(row.envelope);
 
   // Flip bits in ciphertext
   const corruptedCiphertext =
     parsed.ciphertext.substring(0, 10) + 'ffff' + parsed.ciphertext.substring(14);
   parsed.ciphertext = corruptedCiphertext;
-  await AsyncStorage.setItem(EVIDENCE_STORAGE_KEY, JSON.stringify(parsed));
+  await db.runAsync(
+    'UPDATE evidence_records SET envelope = ? WHERE id = ?;',
+    JSON.stringify(parsed),
+    'tamper_test'
+  );
 
   // Loading corrupted storage must fail authentication tag check and return safe fallback []
   const tamperedList = await getEvidence();

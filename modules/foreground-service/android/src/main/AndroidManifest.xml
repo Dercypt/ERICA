@@ -2,16 +2,19 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
   <application>
-    <!-- specialUse is the Android 14+ fallback when location permission is not granted;
-         see EmergencyForegroundService.startInForeground. Sideload/F-Droid distribution. -->
+    <!-- microphone/camera keep Phase 4 evidence capture working while backgrounded; specialUse
+         is the Android 14+ fallback when location permission is not granted. See
+         EmergencyForegroundService.startInForeground. Sideload/F-Droid distribution. -->
     <service
       android:name="expo.modules.foregroundservice.EmergencyForegroundService"
-      android:foregroundServiceType="location|specialUse"
+      android:foregroundServiceType="location|specialUse|microphone|camera"
       android:exported="false">
       <property
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

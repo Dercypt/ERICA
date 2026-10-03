@@ -3,6 +3,7 @@ import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Switch, Alert
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { getSettings, saveSettings, DEFAULT_SETTINGS, type Settings } from './settingsStorage';
+import { requestEvidencePermission } from '../permissions/emergencyPermissions';
 import {
   isPinConfigured,
   setupPin,
@@ -592,7 +593,16 @@ export function SettingsScreen() {
           {
             text: 'I Consent',
             style: 'default',
-            onPress: () => {
+            onPress: async () => {
+              // In-app consent is not enough; Android must grant the permission too.
+              if (!(await requestEvidencePermission('audio'))) {
+                setAudioConsentEnabled(false);
+                Alert.alert(
+                  'Microphone permission needed',
+                  'Microphone access was not granted, so this stays off. You can allow it in system settings.'
+                );
+                return;
+              }
               setAudioConsentEnabled(true);
               setSettings((s) => ({ ...s, evidenceAudioConsentEnabled: true }));
             },
@@ -619,7 +629,16 @@ export function SettingsScreen() {
           {
             text: 'I Consent',
             style: 'default',
-            onPress: () => {
+            onPress: async () => {
+              // In-app consent is not enough; Android must grant the permission too.
+              if (!(await requestEvidencePermission('camera'))) {
+                setPhotoConsentEnabled(false);
+                Alert.alert(
+                  'Camera permission needed',
+                  'Camera access was not granted, so this stays off. You can allow it in system settings.'
+                );
+                return;
+              }
               setPhotoConsentEnabled(true);
               setSettings((s) => ({ ...s, evidencePhotoConsentEnabled: true }));
             },
