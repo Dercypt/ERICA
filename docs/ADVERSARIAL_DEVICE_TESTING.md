@@ -1,6 +1,10 @@
 # Real-World Adversarial & Reference Hardware Test Verification
 
-This document details the test procedures, architecture, and verification results for proving silent background dispatch and retry resiliency under hostile, real-world Android conditions (and the capability-honest companion flow on iOS).
+This document details the test procedures and expected outcomes for proving silent background dispatch and retry resiliency under hostile, real-world Android conditions (and the capability-honest companion flow on iOS).
+
+> [!IMPORTANT]
+> The "Expected" outcomes below are what each step should show. They are **not** recorded
+> results. A run only counts once it is entered in [§7 Results log](#7-results-log).
 
 ---
 
@@ -144,7 +148,7 @@ adb shell dumpsys accessibility | grep -i erica
    adb wait-for-device
    ```
 4. **Survivability Assertion**:
-   - SQLite persistent database file `/data/user/0/com.erica.sos/databases/erica_outbox.db` persists across reboot with 100% data fidelity.
+   - SQLite persistent database file `/data/user/0/com.erica.sos/files/SQLite/erica_outbox.db` (expo-sqlite's location) persists across reboot with 100% data fidelity.
    - `EricaBootReceiver` receives `android.intent.action.BOOT_COMPLETED`.
    - `EricaBootReceiver` queries `outbox_queue` for pending alerts; detecting pending items, it launches `EmergencyForegroundService` to guarantee process keep-alive during flush.
 5. **Disable Airplane Mode (Signal Restored)**:
@@ -175,8 +179,31 @@ In compliance with Phase 8 and platform security policies, iOS strictly restrict
 
 ## 6. Single Verification Command
 
-Run the entire comprehensive test suite (all 13 test suites covering crypto vectors, disk encryption, duress mode, lock states, dead-zone buffering, reboot survivability, and iOS companion flow):
+Run the automated suite (crypto, encrypted storage, duress mode, lock states, outbox buffering and retry, evidence vault, iOS companion flow). It runs in Node with mocks for the native modules, so it does not replace the on-device runs above:
 
 ```bash
-npm test
+./verify.sh
+npm run test:coverage
 ```
+
+---
+
+## 7. Results log
+
+Phase 5 is done when every row below has a passing result on at least one reference device
+(stock Android 13+, e.g. a Pixel), and failures are either fixed or listed as known
+limitations. Add one row per run; don't overwrite old rows.
+
+| # | Scenario | Section | Pass condition |
+|---|----------|---------|----------------|
+| 1 | Accessibility service enabled on a sideloaded build | §1 | Service shows as bound in `dumpsys accessibility` |
+| 2 | 15+ min deep Doze, then 4x volume-down | §2, §3 | SMS arrives on a second phone with a location link; no taps |
+| 3 | Locked screen, 4x volume-down | §3 | Lock-screen notification with `I'M SAFE`; SMS arrives |
+| 4 | App swiped from recents, then 4x volume-down | §4A | SMS arrives; foreground notification shows |
+| 5 | Airplane mode, trigger, reboot, airplane mode off | §4B | Exactly one SMS per contact arrives after signal returns |
+| 6 | `I'M SAFE` / `MARK_SAFE` after an active alert | Law 4 | Notification gone; no foreground service in `dumpsys activity services com.erica.sos` |
+| 7 | Siren, strobe, audio and photo evidence during an alert | Phase 4 | Each works or fails on its own; evidence count goes up in History |
+
+| Date | Tester | Device / Android version / OEM skin | Build (commit) | Rows run | Result and notes |
+|------|--------|-------------------------------------|----------------|----------|------------------|
+| | | | | | |

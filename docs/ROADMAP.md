@@ -60,7 +60,7 @@ Goal: everything that requires leaving Expo Go for a Dev Client build.
 contacts' phones with zero taps, and a dropped signal keeps retrying instead
 of vanishing after 3 tries.
 
-*Hardware verification note:* Native Kotlin modules are **tested on reference Android hardware** under Doze and restricted settings constraints, deliberately avoiding overreaching claims like "certified" across fragmented OEM skins. See [ADR 001](adr/001-native-kotlin-and-ios-companion.md) and [ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md).
+*Hardware verification note:* The on-device procedure for the native Kotlin modules (Doze, restricted settings, locked screen, reboot) is written up, but no run has been recorded yet; results go in the log in ADVERSARIAL_DEVICE_TESTING.md. Claims stay at "tested on reference hardware" once that log is filled in, never "certified". See [ADR 001](adr/001-native-kotlin-and-ios-companion.md) and [ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md).
 
 ## Phase 3 — Trust & privacy layer
 
@@ -97,7 +97,8 @@ during its emergency path.
 (`npm run test:coverage`: lines 85%, branches 78%, functions 70% over `src/` and the module
 JS bridges; currently 88 / 82 / 74). Still open: the native Kotlin modules have no automated
 tests (JVM/Robolectric tests would need new Gradle test dependencies), and the on-device
-"done when" below has no recorded results yet.
+"done when" below has no recorded results yet (record runs in the results log in
+[ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md#7-results-log)).
 
 **Done when:** All test suites pass cleanly (`npm test`). Emergency dispatch and background survivability are **tested on reference Android hardware** under adversarial conditions (simulated 15+ min deep Doze, locked keyguard, airplane mode dead-zones), avoiding overreaching claims like "certified" due to OEM-specific task killer variations.
 
