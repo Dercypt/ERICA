@@ -7,6 +7,7 @@ import { DEFAULT_SETTINGS, saveSettings } from '../src/features/settings/setting
 import {
   configureDeterrenceEvidenceOverrides,
   resetDeterrenceEvidenceOverrides,
+  startDeterrence,
 } from '../modules/deterrence-evidence';
 import {
   startEmergencyDeterrenceAndEvidence,
@@ -210,6 +211,32 @@ test('stop during a segment rotation never leaves the microphone recording', asy
   await stop;
   await new Promise((r) => setTimeout(r, 50));
   assert.strictEqual(recording, false, 'rotation must not restart the mic after stop was requested');
+});
+
+test('a siren failure does not stop the strobe from starting (and vice versa)', async () => {
+  configureDeterrenceEvidenceOverrides({
+    getRingerMode: async () => {
+      throw new Error('AudioManager unavailable');
+    },
+    startSiren: async () => {
+      throw new Error('AudioTrack init failed');
+    },
+    startStrobe: async () => true,
+  });
+  const status = await startDeterrence({ sirenEnabled: true, strobeEnabled: true, respectSilentMode: true });
+  assert.strictEqual(status.strobeActive, true, 'strobe must still start');
+  assert.strictEqual(status.sirenActive, false);
+
+  configureDeterrenceEvidenceOverrides({
+    getRingerMode: async () => 'normal',
+    startSiren: async () => ({ started: true, suppressedBySilentMode: false }),
+    startStrobe: async () => {
+      throw new Error('torch busy');
+    },
+  });
+  const status2 = await startDeterrence({ sirenEnabled: true, strobeEnabled: true, respectSilentMode: true });
+  assert.strictEqual(status2.sirenActive, true, 'siren must still start');
+  assert.strictEqual(status2.strobeActive, false);
 });
 
 test('emergency foreground service can keep microphone and camera access while backgrounded', () => {
