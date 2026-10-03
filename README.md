@@ -30,7 +30,7 @@ E.R.I.C.A. employs a hybrid architecture balancing cross-platform testability wi
 ## Hardware Testing & Platform Status
 
 > [!IMPORTANT]
-> E.R.I.C.A. is **tested on reference Android hardware** (Google Pixel and AOSP reference devices running Android 13 and Android 14), alongside verified configuration walkthroughs for hostile OEM skins (Xiaomi HyperOS/MIUI, Oppo ColorOS, Transsion XOS).
+> E.R.I.C.A.'s JavaScript/TypeScript logic is covered by automated tests that run in CI. On-device testing on reference Android hardware (Doze, locked keyguard, airplane-mode dead zones, reboot) is defined in [ADVERSARIAL_DEVICE_TESTING.md](docs/ADVERSARIAL_DEVICE_TESTING.md) but **has no recorded results yet**; until the results log there is filled in, treat background reliability on real phones as unverified.
 >
 > We deliberately **avoid overreaching claims such as "certified"**, as the vast landscape of Android device manufacturers, proprietary battery managers, and carrier-specific basebands prevents universal guarantees.
 

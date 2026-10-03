@@ -60,7 +60,7 @@ Goal: everything that requires leaving Expo Go for a Dev Client build.
 contacts' phones with zero taps, and a dropped signal keeps retrying instead
 of vanishing after 3 tries.
 
-*Hardware verification note:* Native Kotlin modules are **tested on reference Android hardware** under Doze and restricted settings constraints, deliberately avoiding overreaching claims like "certified" across fragmented OEM skins. See [ADR 001](adr/001-native-kotlin-and-ios-companion.md) and [ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md).
+*Hardware verification note:* The on-device procedure for the native Kotlin modules (Doze, restricted settings, locked screen, reboot) is written up, but no run has been recorded yet; results go in the log in ADVERSARIAL_DEVICE_TESTING.md. Claims stay at "tested on reference hardware" once that log is filled in, never "certified". See [ADR 001](adr/001-native-kotlin-and-ios-companion.md) and [ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md).
 
 ## Phase 3 — Trust & privacy layer
 
@@ -97,7 +97,8 @@ during its emergency path.
 (`npm run test:coverage`: lines 85%, branches 78%, functions 70% over `src/` and the module
 JS bridges; currently 88 / 82 / 74). Still open: the native Kotlin modules have no automated
 tests (JVM/Robolectric tests would need new Gradle test dependencies), and the on-device
-"done when" below has no recorded results yet.
+"done when" below has no recorded results yet (record runs in the results log in
+[ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md#7-results-log)).
 
 **Done when:** All test suites pass cleanly (`npm test`). Emergency dispatch and background survivability are **tested on reference Android hardware** under adversarial conditions (simulated 15+ min deep Doze, locked keyguard, airplane mode dead-zones), avoiding overreaching claims like "certified" due to OEM-specific task killer variations.
 
@@ -123,3 +124,34 @@ sensor triggers, so this ships as a capability-honest companion, not feature
 parity — stated plainly in the concept paper's Scope & Limitations.
 
 *Implementation note:* Delivered as a capability-honest companion: UI-driven cancellable countdown, `expo-sms` composer fallback, and Face ID / Touch ID biometric gatekeeper (`expo-local-authentication`). Non-blocking tests run cleanly in headless CI without requiring Xcode.
+
+## Phase 9 — Feature parity with SOS-alerter
+
+Runs after Phases 5–8 on purpose. Phase 7's `DispatchChannel` abstraction means live
+location and calling are built once as channel features, and Phase 6's onboarding,
+test-fire mode and settings screens give every new trigger its switch and test button from
+day one.
+
+Everything here is written clean-room from SOS-alerter's public feature list. Its source is
+GPL-3.0 and must not be copied into this MIT project (see CONTRIBUTING).
+
+1. **Long-press SOS button** — hold to trigger, as an alternative to tap plus countdown.
+2. **Loud / Stealth presets** — one switch choosing siren and strobe (loud) or silent
+   evidence capture only (stealth), on top of the existing per-deterrent toggles.
+3. **Live location updates** — re-send the current position by SMS at a chosen interval
+   while an SOS is active. Sent through the encrypted outbox; must stop on `CANCEL` and
+   `MARK_SAFE` with no leftover timers (Law 4).
+4. **Direct emergency call** — place a call to a chosen contact or number as part of the
+   SOS. Needs `CALL_PHONE` and a native bridge change, so it requires explicit approval
+   first (PRINCIPLES.md).
+5. **Triple power-button trigger** — experimental and off by default; Android limits what
+   apps can observe here.
+6. **Voice trigger ("Help Me")** — only if approved, and only with on-device recognition so
+   nothing leaves the phone (Law 5). Currently deferred.
+
+Not planned: end-to-end cloud sync (conflicts with Law 5, SMS-only transmission) and Wear
+OS (a separate project). Home-screen widgets and multi-language support belong with the
+Phase 6 polish work.
+
+**Done when:** each item above works on a reference Android device, has tests, and passes
+`./verify.sh`; items 4 and 6 additionally have the user's recorded approval.
