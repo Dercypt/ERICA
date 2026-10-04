@@ -98,7 +98,7 @@ test('Task 5.1: iOS Companion Check - Capability-honest detection: Silent SMS is
   assert.strictEqual(composerRecipients.length, 1);
   assert.strictEqual(composerRecipients[0], '+14085550199');
   assert.ok(composerMessage.includes('EMERGENCY ALERT'));
-  assert.ok(composerMessage.includes('maps.google.com/?q=37.3349,-122.009'));
+  assert.ok(composerMessage.includes('Location: 37.33490,-122.00900 (accuracy 5m)'));
 });
 
 test('Task 5.2: iOS Companion Flow - Cancellable countdown allows user to cancel before SMS composer is invoked', async () => {
