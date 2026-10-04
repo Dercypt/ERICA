@@ -54,6 +54,22 @@ test('committed android/ matches what the plugin generates', () => {
   assert.ok(manifest.includes('android:allowBackup="false"'));
 });
 
+test('module XML comments never contain "--" (Android\'s manifest merger rejects the file)', () => {
+  const xmlFiles = (dir: string): string[] =>
+    fs.readdirSync(dir).flatMap((name: string): string[] => {
+      const path = `${dir}/${name}`;
+      if (fs.statSync(path).isDirectory()) return name === 'build' ? [] : xmlFiles(path);
+      return name.endsWith('.xml') ? [path] : [];
+    });
+  const files = xmlFiles('modules');
+  assert.ok(files.length >= 4, 'expected the module manifests to be found');
+  for (const file of files) {
+    for (const [, body] of fs.readFileSync(file, 'utf8').matchAll(/<!--([\s\S]*?)-->/g)) {
+      assert.ok(!body.includes('--'), `${file}: comment contains "--": ${body.trim().slice(0, 60)}`);
+    }
+  }
+});
+
 test('boot receiver ships in the library and reads the outbox where expo-sqlite stores it', () => {
   const manifest = fs.readFileSync('modules/foreground-service/android/src/main/AndroidManifest.xml', 'utf8');
   assert.ok(manifest.includes('expo.modules.foregroundservice.EricaBootReceiver'));

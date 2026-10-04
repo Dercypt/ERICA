@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <application>
-    <!-- Declared in the library so it survives `expo prebuild --clean`; it previously lived
+    <!-- Declared in the library so it survives `expo prebuild`'s clean regeneration; it previously lived
          only in hand edits to the generated android/ app manifest. -->
     <service
       android:name="expo.modules.physicaltriggers.EricaAccessibilityService"
