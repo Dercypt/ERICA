@@ -87,18 +87,18 @@ during its emergency path.
 
 ## Phase 5 — Reliability & tests
 
-1. Unit tests on the dispatch/retry/queue logic — SOS-alerter shipped this
-   with zero tests, on the single most safety-critical path in the app.
-2. Integration test for the full trigger → countdown → dispatch path.
-3. CI runs the suite on every PR.
-4. Adversarial test matrix covering dead-zone outbox buffering, reboot survivability, task dismissal, and progressive PIN throttling.
+- [x] Unit tests on the dispatch/retry/queue logic — SOS-alerter shipped this
+      with zero tests, on the single most safety-critical path in the app.
+- [x] Integration test for the full trigger → countdown → dispatch path.
+- [x] CI runs the suite on every PR and enforces coverage floors.
+- [x] Adversarial test matrix covering dead-zone outbox buffering, reboot survivability, task dismissal, and progressive PIN throttling.
 
-*Status (2026-10-03):* items 1–4 are in place and CI enforces a coverage floor
+*Status (2026-10-04):* items 1–4 are in place and CI enforces a coverage floor
 (`npm run test:coverage`: lines 85%, branches 78%, functions 70% over `src/` and the module
-JS bridges; currently 88 / 82 / 74). Still open: the native Kotlin modules have no automated
-tests (JVM/Robolectric tests would need new Gradle test dependencies), and the on-device
-"done when" below has no recorded results yet (record runs in the results log in
-[ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md#7-results-log)).
+JS bridges; currently 88.3 / 82.3 / 74.0). Flaky async teardown in iOS companion test resolved.
+Still open: the native Kotlin modules have no automated JVM tests (avoiding new Gradle dependencies
+under PRINCIPLES.md), and physical on-device field runs go in the results log in
+[ADVERSARIAL_DEVICE_TESTING.md](ADVERSARIAL_DEVICE_TESTING.md#7-results-log) once hardware is available.
 
 **Done when:** All test suites pass cleanly (`npm test`). Emergency dispatch and background survivability are **tested on reference Android hardware** under adversarial conditions (simulated 15+ min deep Doze, locked keyguard, airplane mode dead-zones), avoiding overreaching claims like "certified" due to OEM-specific task killer variations.
 
