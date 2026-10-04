@@ -25,6 +25,15 @@ jobs:
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
+      # *.keystore is gitignored, so make a throwaway key matching the debug signingConfig in
+      # android/app/build.gradle. It differs per run: uninstall the old APK before installing
+      # a newer one.
+      - name: Create throwaway signing key
+        run: >
+          keytool -genkeypair -keystore android/app/debug.keystore
+          -storepass android -keypass android -alias androiddebugkey
+          -keyalg RSA -keysize 2048 -validity 10000
+          -dname "CN=ERICA test build,O=ERICA,C=US"
       - name: Build release APK (debug-signed)
         working-directory: android
         run: ./gradlew assembleRelease --no-daemon
