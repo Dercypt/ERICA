@@ -153,7 +153,8 @@ test('Task 3.1: Full Emergency Panic Integration: Hardware Volume Button trigger
 
     assert.ok(sentPayload.includes('EMERGENCY ALERT'), 'Must include emergency header');
     assert.ok(sentPayload.includes('Triggered via: Volume Button Pattern'), 'Must include trigger source');
-    assert.ok(sentPayload.includes('maps.google.com'), 'Must include GPS coordinates link');
+    assert.ok(/Location: -?\d+\.\d{5},-?\d+\.\d{5}/.test(sentPayload), 'Must include GPS coordinates');
+    assert.ok(!/https?:\/\//.test(sentPayload), 'Must not include a link (carriers drop SMS with URLs)');
 
     // 9. Verify zero leaks: UI and vault memory remain locked post-dispatch
     assert.strictEqual(appLockController.getSnapshot().isLocked, true, 'UI must remain locked after dispatch');

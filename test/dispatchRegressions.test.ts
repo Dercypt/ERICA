@@ -5,7 +5,7 @@ import { mockLocationState, resetMockLocation } from './mockLocation.mjs';
 import AsyncStorage from './mockAsyncStorage.mjs';
 import { MockSQLiteDatabase } from './mockDatabase';
 import { getCurrentLocation } from '../src/features/location/locationService';
-import { dispatchEmergencySms } from '../src/features/dispatch/smsDispatch';
+import { dispatchEmergencySms, composeEmergencyMessage } from '../src/features/dispatch/smsDispatch';
 import {
   initDispatchEngine,
   flushOutboxQueue,
@@ -154,4 +154,21 @@ test('SOS: with SMS unavailable the machine still reaches active, queues the ale
     resetSosService();
     teardown();
   }
+});
+
+test('alert text: no link, GSM-7 only, and one SMS segment in the worst case', () => {
+  const message = composeEmergencyMessage(
+    'The user may be in danger.',
+    { latitude: -89.123456789, longitude: -179.987654321, accuracy: 1234.567, timestamp: 0 },
+    'Duress PIN (Silent SOS)',
+    new Date(2026, 9, 4, 7, 5)
+  );
+  assert.ok(!/https?:\/\/|www\.|maps\./i.test(message), `carriers drop SMS with links: ${message}`);
+  assert.ok(/^[A-Za-z0-9 .,:()'-]*$/.test(message), `non-GSM-7 character would cut the limit to 70: ${message}`);
+  assert.ok(message.length <= 160, `must fit one segment, got ${message.length}: ${message}`);
+  assert.ok(message.includes('Location: -89.12346,-179.98765 (accuracy 1235m)'));
+  assert.ok(message.endsWith('07:05'));
+
+  const noFix = composeEmergencyMessage('Help.', null, 'Manual', new Date(2026, 0, 1, 23, 59));
+  assert.strictEqual(noFix, 'EMERGENCY ALERT: Help. Location: unavailable. Triggered via: Manual. 23:59');
 });

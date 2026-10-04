@@ -26,6 +26,34 @@ class PhysicalTriggersModule : Module() {
 
     var shakeDetector: ShakeDetector? = null
 
+    // The detector's settings live in memory, so after Android kills and restarts the process
+    // (e.g. the app is swiped away) the accessibility service kept forwarding key presses to
+    // a detector that had reverted to disabled. Persist the last configuration and restore it
+    // whenever the process starts. Only on/off, press count and window are stored: nothing
+    // about contacts, location or alerts.
+    private const val PREFS = "erica_physical_triggers"
+    private const val KEY_VOLUME_ENABLED = "volume_enabled"
+    private const val KEY_VOLUME_PRESS_COUNT = "volume_press_count"
+    private const val KEY_VOLUME_WINDOW_MS = "volume_window_ms"
+
+    fun saveVolumeConfig(ctx: Context, enabled: Boolean, pressCount: Int?, windowMs: Long?) {
+      val editor = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        .putBoolean(KEY_VOLUME_ENABLED, enabled)
+      pressCount?.let { if (it > 0) editor.putInt(KEY_VOLUME_PRESS_COUNT, it) }
+      windowMs?.let { if (it > 0) editor.putLong(KEY_VOLUME_WINDOW_MS, it) }
+      editor.apply()
+    }
+
+    fun restoreVolumeConfig(ctx: Context) {
+      val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+      if (!prefs.contains(KEY_VOLUME_ENABLED)) return
+      volumeDetector.configure(
+        prefs.getBoolean(KEY_VOLUME_ENABLED, false),
+        prefs.getInt(KEY_VOLUME_PRESS_COUNT, VolumePatternDetector.DEFAULT_PRESS_COUNT),
+        prefs.getLong(KEY_VOLUME_WINDOW_MS, VolumePatternDetector.DEFAULT_WINDOW_MS)
+      )
+    }
+
     fun onKeyEvent(event: KeyEvent): Boolean {
       return volumeDetector.onKeyEvent(event)
     }
@@ -102,6 +130,7 @@ class PhysicalTriggersModule : Module() {
     OnCreate {
       instance = this@PhysicalTriggersModule
       systemContext = context.applicationContext
+      restoreVolumeConfig(context.applicationContext)
       if (shakeDetector == null) {
         shakeDetector = ShakeDetector(
           context = context,
@@ -133,6 +162,7 @@ class PhysicalTriggersModule : Module() {
         val windowMs = windowSeconds?.let { (it * 1000).toLong() }
 
         volumeDetector.configure(enabled, pressCount, windowMs)
+        saveVolumeConfig(context.applicationContext, enabled, pressCount, windowMs)
         promise.resolve(true)
       } catch (e: Throwable) {
         Log.e(TAG, "Failed to configure volume trigger", e)

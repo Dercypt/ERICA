@@ -21,7 +21,7 @@
         android:value="Personal safety: keeps an active emergency alert running until the user marks themselves safe" />
     </service>
     <!-- Resumes undelivered alerts after reboot or app update. Declared here rather than in
-         the generated app manifest so it survives `expo prebuild --clean`. -->
+         the generated app manifest so it survives `expo prebuild`'s clean regeneration. -->
     <receiver
       android:name="expo.modules.foregroundservice.EricaBootReceiver"
       android:enabled="true"

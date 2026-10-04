@@ -2,7 +2,6 @@ import { Platform } from 'react-native';
 import { sendSilentSms, isAvailableAsync } from '../../../modules/silent-sms';
 import type { Contact } from '../contacts/contactsStorage';
 import type { LocationResult } from '../location/locationService';
-import { mapsLinkFor } from '../location/locationService';
 import { getSettings } from '../settings/settingsStorage';
 import { enqueueAndDispatch, isSmsAvailable } from './queueProcessor';
 
@@ -46,6 +45,30 @@ export function setCustomComposerSender(
 }
 
 /**
+ * Builds the alert as one plain-text SMS.
+ *
+ * - No URL: Philippine carriers (Globe, Smart) silently drop person-to-person SMS containing
+ *   links, so a maps link made the alert vanish while the link-free "resolved" text arrived.
+ *   Plain coordinates still paste straight into any maps app.
+ * - GSM-7 characters only and no ISO timestamp, so the default text fits one 160-character
+ *   segment instead of a multipart message (a non-GSM character like "±" would cut the limit
+ *   to 70). A long custom message can still need several segments.
+ */
+export function composeEmergencyMessage(
+  body: string,
+  location: LocationResult | null,
+  triggerSource: string,
+  now: Date
+): string {
+  const where = location
+    ? `Location: ${location.latitude.toFixed(5)},${location.longitude.toFixed(5)}` +
+      (location.accuracy != null ? ` (accuracy ${Math.round(location.accuracy)}m)` : '')
+    : 'Location: unavailable';
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return `EMERGENCY ALERT: ${body} ${where}. Triggered via: ${triggerSource}. ${time}`;
+}
+
+/**
  * Phase 2 direct carrier SMS dispatch using native SilentSms module (android.telephony.SmsManager)
  * backed by persistent SQLite outbox queue, exponential backoff retries, and NetInfo connectivity flush.
  *
@@ -61,20 +84,7 @@ export async function dispatchEmergencySms({ contacts, location, triggerSource }
   const settings = await getSettings();
   const who = settings.userName.trim() || 'The user';
   const body = settings.customMessage.trim() || `${who} may be in danger.`;
-  const locationLine = location
-    ? `Location: ${mapsLinkFor(location)}\nAccuracy: ${location.accuracy ?? 'unknown'} meters`
-    : 'Location: unavailable';
-
-  const message = [
-    'EMERGENCY ALERT',
-    '',
-    body,
-    '',
-    `Triggered via: ${triggerSource}`,
-    locationLine,
-    '',
-    `Time: ${new Date().toISOString()}`,
-  ].join('\n');
+  const message = composeEmergencyMessage(body, location, triggerSource, new Date());
 
   const silentAvailable = await checkSmsAvailable();
   // On Android the alert is always queued, even when SMS is unavailable right now: the

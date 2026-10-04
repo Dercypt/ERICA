@@ -19,6 +19,9 @@ class EricaAccessibilityService : AccessibilityService() {
     super.onServiceConnected()
     Log.i(TAG, "EricaAccessibilityService connected and ready")
     PhysicalTriggersModule.systemContext = applicationContext
+    // The service can start in a fresh process with no JS running; restore the trigger the
+    // user switched on instead of waiting for the app UI to configure it.
+    PhysicalTriggersModule.restoreVolumeConfig(applicationContext)
   }
 
   override fun onAccessibilityEvent(event: AccessibilityEvent?) {

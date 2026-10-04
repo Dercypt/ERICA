@@ -164,6 +164,10 @@ export function SettingsScreen() {
   const [photoConsentEnabled, setPhotoConsentEnabled] = useState(false);
   const [dualCameraEnabled, setDualCameraEnabled] = useState(true);
 
+  // Switches save themselves (see the auto-save effect below); this stays false until stored
+  // settings are loaded so the defaults shown on first render are never written over them.
+  const loadedRef = useRef(false);
+
   useFocusEffect(
     useCallback(() => {
       getSettings().then((s) => {
@@ -187,6 +191,7 @@ export function SettingsScreen() {
         setAudioConsentEnabled(Boolean(s.evidenceAudioConsentEnabled));
         setPhotoConsentEnabled(Boolean(s.evidencePhotoConsentEnabled));
         setDualCameraEnabled(s.evidenceDualCamera ?? true);
+        loadedRef.current = true;
 
         volumeEngineRef.current.configure({
           enabled: true,
@@ -489,9 +494,7 @@ export function SettingsScreen() {
     }
   };
 
-  const onSave = async () => {
-    const finalCountdown = Math.max(3, parseInt(countdownText, 10) || 10);
-    const finalRetryCeiling = Math.max(5, parseInt(retryCeilingText, 10) || 60);
+  const persistSettings = async (finalCountdown: number, finalRetryCeiling: number): Promise<Settings> => {
 
     const toSave: Settings = {
       ...settings,
@@ -532,11 +535,53 @@ export function SettingsScreen() {
     }).catch(() => {});
 
     setSettings(toSave);
-    setCountdownText(String(finalCountdown));
-    setRetryCeilingText(String(finalRetryCeiling));
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+    return toSave;
   };
+
+  const onSave = async () => {
+    const finalCountdown = Math.max(3, parseInt(countdownText, 10) || 10);
+    const finalRetryCeiling = Math.max(5, parseInt(retryCeilingText, 10) || 60);
+    await persistSettings(finalCountdown, finalRetryCeiling);
+    setCountdownText(String(finalCountdown));
+    setRetryCeilingText(String(finalRetryCeiling));
+  };
+
+  // Every switch and stepper saves as soon as it changes. Before, they only changed the screen
+  // until "Save Settings" at the very bottom was tapped: the in-screen tests used the unsaved
+  // values and worked, while a real SOS read the stored ones (siren and strobe off) and the
+  // native volume/shake detectors were never switched on. Text fields are left to the Save
+  // button so a half-typed number is not saved and rewritten mid-edit.
+  useEffect(() => {
+    if (!loadedRef.current) return;
+    persistSettings(
+      Math.max(3, settings.countdownSeconds ?? 10),
+      Math.max(5, settings.retryCeilingSeconds ?? 60)
+    ).catch((err) =>
+      console.warn('[SettingsScreen] Auto-save failed:', err)
+    );
+    // persistSettings reads the latest state; only the values below should trigger a save.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    volumeEnabled,
+    volumePressCount,
+    volumeWindowSeconds,
+    shakeEnabled,
+    shakeThreshold,
+    shakeMinCount,
+    shakeAlpha,
+    biometricsEnabled,
+    lockTimeout,
+    duressSilentSosEnabled,
+    decoyContactsType,
+    sirenEnabled,
+    strobeEnabled,
+    respectSilentMode,
+    audioConsentEnabled,
+    photoConsentEnabled,
+    dualCameraEnabled,
+  ]);
 
   const handleTestDeterrence = async () => {
     if (isDeterrenceTesting) {
