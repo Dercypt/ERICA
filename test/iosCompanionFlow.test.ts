@@ -31,6 +31,7 @@ import {
   getSosService,
   resetSosService,
 } from '../src/features/sos/sosMachine';
+import { stopEmergencyDeterrenceAndEvidence } from '../src/features/evidence/evidenceCoordinator';
 
 test.beforeEach(async () => {
   // The composer fallback is the iOS companion path; Android always queues instead.
@@ -39,6 +40,7 @@ test.beforeEach(async () => {
   resetMockLocalAuthentication();
   resetMockSms();
   setCustomComposerSender(null);
+  await stopEmergencyDeterrenceAndEvidence();
   lockVault();
   resetSosService();
   await clearHistory();
@@ -54,7 +56,8 @@ test.beforeEach(async () => {
   resetDispatchEngineOverrides();
 });
 
-test.afterEach?.(() => {
+test.afterEach?.(async () => {
+  await stopEmergencyDeterrenceAndEvidence();
   (Platform as { OS: string }).OS = 'android';
 });
 
