@@ -70,6 +70,30 @@ test('module XML comments never contain "--" (Android\'s manifest merger rejects
   }
 });
 
+test('volume trigger survives a process restart: config is persisted and restored natively', () => {
+  const dir = 'modules/physical-triggers/android/src/main/java/expo/modules/physicaltriggers';
+  const module = fs.readFileSync(`${dir}/PhysicalTriggersModule.kt`, 'utf8');
+  const service = fs.readFileSync(`${dir}/EricaAccessibilityService.kt`, 'utf8');
+  const configure = module.slice(module.indexOf('AsyncFunction("configureVolumeTrigger")'));
+  assert.ok(
+    configure.indexOf('saveVolumeConfig(') !== -1 &&
+      configure.indexOf('saveVolumeConfig(') < configure.indexOf('AsyncFunction("configureShakeTrigger")'),
+    'configureVolumeTrigger must persist what JS set'
+  );
+  const connected = service.slice(service.indexOf('fun onServiceConnected'), service.indexOf('fun onAccessibilityEvent'));
+  assert.ok(connected.includes('restoreVolumeConfig('), 'the accessibility service must restore it on connect');
+});
+
+test('settings switches save without the Save button', () => {
+  const screen = fs.readFileSync('src/features/settings/SettingsScreen.tsx', 'utf8');
+  const effect = screen.slice(screen.indexOf('if (!loadedRef.current) return;'));
+  assert.ok(effect.includes('persistSettings('), 'auto-save effect must persist');
+  const deps = effect.slice(effect.indexOf('}, ['), effect.indexOf(']);'));
+  for (const name of ['sirenEnabled', 'strobeEnabled', 'volumeEnabled', 'shakeEnabled']) {
+    assert.ok(deps.includes(name), `${name} must trigger an auto-save`);
+  }
+});
+
 test('boot receiver ships in the library and reads the outbox where expo-sqlite stores it', () => {
   const manifest = fs.readFileSync('modules/foreground-service/android/src/main/AndroidManifest.xml', 'utf8');
   assert.ok(manifest.includes('expo.modules.foregroundservice.EricaBootReceiver'));
