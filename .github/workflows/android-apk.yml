@@ -1,0 +1,36 @@
+name: Android test APK
+
+# Builds an installable APK for on-device testing (docs/ADVERSARIAL_DEVICE_TESTING.md).
+# It is a release build, so the JS bundle is inside and it runs without a Metro server, but it
+# is signed with the throwaway debug keystore in android/app: for testers only, never for
+# distribution.
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - run: npm ci
+      - name: Build release APK (debug-signed)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: erica-test-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
